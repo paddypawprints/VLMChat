@@ -1,12 +1,13 @@
 import logging
-from typing import List, Dict, Any, Generator, Union
+from typing import List, Dict, Any
+from src.models.SmolVLM.smol_vlm_model import SmolVLMModel
 
 logger = logging.getLogger(__name__)
 
 class ResponseGenerator:
     """Handles generation of responses from the model."""
     
-    def __init__(self, model):
+    def __init__(self, model: SmolVLMModel):
         """
         Initialize response generator.
         
@@ -37,7 +38,7 @@ class ResponseGenerator:
             if self.model.use_onnx and stream_output:
                 return self._generate_streaming_onnx(inputs)
             elif self.model.use_onnx:
-                return self._generate_non_streaming_onnx(inputs)
+                return self._generate_streaming_onnx(inputs)
             else:
                 return self.model.generate_transformers(inputs)
                 
@@ -49,12 +50,8 @@ class ResponseGenerator:
         """Generate response with ONNX streaming."""
         response_tokens = []
         for token_text in self.model.generate_onnx(inputs):
-            print(token_text, end='', flush=True)
             response_tokens.append(token_text)
-        print()  # New line after streaming
+        response_tokens.append('\n')
         return ''.join(response_tokens)
     
-    def _generate_non_streaming_onnx(self, inputs: Dict[str, Any]) -> str:
-        """Generate response with ONNX non-streaming."""
-        generated_tokens = list(self.model.generate_onnx(inputs))
-        return ''.join(generated_tokens)
+ 

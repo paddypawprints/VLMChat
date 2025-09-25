@@ -5,11 +5,12 @@ import torch
 import onnxruntime
 import numpy as np
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Generator
 from transformers import AutoConfig, AutoProcessor, AutoModelForImageTextToText
 from PIL import Image
+from src.prompt.prompt import Prompt, History
 
-from models.model_config import ModelConfig
+from src.models.SmolVLM.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class SmolVLMModel:
             for kv in ('key', 'value')
         }
     
-    def generate_onnx(self, inputs: Dict[str, np.ndarray], max_new_tokens: int = None) -> np.ndarray:
+    def generate_onnx(self, inputs: Dict[str, np.ndarray], max_new_tokens: int = None) -> Generator[np.ndarray, None, None]:
         """
         Generate text using ONNX runtime.
         
@@ -179,9 +180,7 @@ class SmolVLMModel:
             
             # Optional streaming output
             yield self.processor.decode(input_ids[0])
-        
-        return generated_tokens
-    
+                   
     def generate_transformers(self, inputs: Dict[str, Any], max_new_tokens: int = None) -> str:
         """
         Generate text using transformers library (fallback method).
@@ -204,3 +203,23 @@ class SmolVLMModel:
             )
         
         return self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
+
+    def get_messages(self, prompt: Prompt) -> List[Dict[str, Any]]:
+        """Get the current prompt from a Prompt object."""
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                {"type": "text", "text": "You are a helpful assistant."},
+                {"type": "text", "text": prompt.history.get_formatted_history()},
+                ]
+            },
+            {
+                "role": "user",
+                "content": [
+                {"type": "text", "text": prompt.user_input},
+                {"type": "image", "image": ""},                ]
+            },
+]
+        # Assuming the Prompt class has a method to get the formatted prompt string
+        return messages

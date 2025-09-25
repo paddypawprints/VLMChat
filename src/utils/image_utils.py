@@ -9,7 +9,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def get_pil_image_from_url(url: str) -> Optional[Image.Image]:
+def load_image_from_url(url: str) -> Optional[Image.Image]:
     """
     Downloads an image from a URL and returns it as a PIL.Image object.
     The image is converted to 'RGB' mode.
@@ -42,4 +42,14 @@ def get_pil_image_from_url(url: str) -> Optional[Image.Image]:
         return None
     except Image.UnidentifiedImageError:
         logger.error(f"Could not identify image file from {url}")
+        return None
+
+def load_image_from_file(image_path: str) -> Optional[Image.Image]:
+    """Load an image from file path."""
+    try:
+        _image = Image.open(image_path).convert('RGB')
+        logger.info(f"Successfully loaded image from: {image_path}")
+        return _image
+    except Exception as e:
+        logger.error(f"Failed to load image from {image_path}: {e}")
         return None

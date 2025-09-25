@@ -4,14 +4,13 @@
 import logging
 from PIL import Image
 
-from models.smol_vlm_model import SmolVLMModel  # Change this line
-from models.model_config import ModelConfig
-from services.rag_service import RAGService
-from utils.image_utils import get_pil_image_from_url
-from context.context_format import ContextFormat
+from src.models.SmolVLM.smol_vlm_model import SmolVLMModel  # Change this line
+from src.models.SmolVLM.model_config import ModelConfig
+from utils.image_utils import load_image_from_url, load_image_from_file
+from src.prompt.prompt import Prompt,HistoryFormat
 from utils.camera import IMX500ObjectDetection
-from context.context_facade import ContextFacade
-from models.response_generator import ResponseGenerator
+
+from src.models.SmolVLM.response_generator import ResponseGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +20,9 @@ class SmolVLMChatApplication:
     def __init__(self, 
                  model_path: str = "HuggingFaceTB/SmolVLM2-256M-Instruct", 
                  use_onnx: bool = True, 
-                 max_context_pairs: int = 10,
-                 max_context_images: int = 2,
-                 context_format: ContextFormat = ContextFormat.XML):
+                 max_pairs: int = 10,
+                 max_images: int = 1,
+                 history_format: HistoryFormat = HistoryFormat.XML):
         """
         Initialize the chat application.
         
@@ -44,13 +43,12 @@ class SmolVLMChatApplication:
         self.config = ModelConfig(model_path=model_path)
         self.model = SmolVLMModel(self.config, use_onnx=use_onnx)
         self.response_generator = ResponseGenerator(self.model)
-        self.rag_service = RAGService()
         
         # Initialize context facade only
-        self.context = ContextFacade(
-            max_pairs=max_context_pairs,
-            max_images=max_context_images,
-            context_format=context_format
+        self.prompt = Prompt(
+            max_pairs=max_pairs,
+            max_images=max_images,
+            history_format=history_format
         )
         
         # Application state
@@ -61,10 +59,9 @@ class SmolVLMChatApplication:
         
         logger.info("SmolVLM Chat Application initialized successfully")
 
-    def set_context_format(self, context_format: ContextFormat) -> None:
+    def set_context_format(self, history_format: HistoryFormat) -> None:
         """Set the context format."""
-        self.context_format = context_format
-        self.context.set_format(context_format)
+        self.prompt.history.set_format(history_format)
 
     def capture_from_camera(self) -> bool:
         """
@@ -85,16 +82,14 @@ class SmolVLMChatApplication:
    
     def process_query(self, user_input: str, stream_output: bool = True) -> str:
         """Process a user query with the current image and conversation context."""
-        if not self.context.current_image:
+        if not self.prompt.history.current_image:
             return "No image loaded. Please load an image first."
         
         logger.info("Processing user query with context")
         
         # Create messages with metadata and context
-        messages = self.context.create_model_messages(
-            user_input=user_input,
-            current_image=self.context.current_image
-        )
+        self.prompt._user_input = user_input  # Update user input in prompt
+        messages = self.model.get_messages(self.prompt)
         
         # Generate response using the generator
         try:
@@ -105,13 +100,12 @@ class SmolVLMChatApplication:
             )
             
             # Add the conversation pair to context
-            self.context.add_conversation_pair(
+            self.prompt.history.add_conversation_pair(
                 request_text=user_input,
-                response_text=response,
-                request_metadata={'has_image': True, 'image_source': 'current_session'}
+                response_text=response
             )
-            
-            logger.info(f"Context stats: {self.context.get_stats()}")
+
+            logger.info(f"Context stats: {self.prompt.history.get_stats()}")
             return response
             
         except Exception as e:
@@ -153,31 +147,35 @@ class SmolVLMChatApplication:
                     continue
                 elif user_input.startswith('/load_url '):
                     url = user_input[10:].strip()
-                    if self.context.load_image_from_url(url):
+                    image = load_image_from_url(url)
+                    if image:
                         print("Image loaded successfully!")
-                        self.context.clear_history()
+                        self.prompt.history.set_current_image(image)
+                        self.prompt.history.clear_history()
                         print("Conversation history cleared for new image.")
                     else:
                         print("Failed to load image.")
                     continue
                 elif user_input.startswith('/load_file '):
                     path = user_input[11:].strip()
-                    if self.context.load_image_from_file(path):
+                    image = load_image_from_file(path)
+                    if image:
                         print("Image loaded successfully!")
-                        self.context.clear_history()
+                        self.prompt.history.set_current_image(image)
+                        self.prompt.history.clear_history()
                         print("Conversation history cleared for new image.")
                     else:
                         print("Failed to load image.")
                     continue
                 elif user_input.startswith('/clear_context'):
-                    self.context.clear_history()
+                    self.prompt.history.clear_history()
                     print("Conversation history cleared.")
                     continue
                 elif user_input.startswith('/show_context'):
-                    self.context.show_conversation_history()
+                    print(str(self.prompt.history))
                     continue
                 elif user_input.startswith('/context_stats'):
-                    stats = self.context.get_stats()
+                    stats = self.prompt.history.get_stats()
                     print("Context Buffer Statistics:")
                     for key, value in stats.items():
                         print(f"  {key}: {value}")
@@ -185,8 +183,8 @@ class SmolVLMChatApplication:
                 elif user_input.startswith("/format"):
                     try:
                         _, format_name = user_input.split(maxsplit=1)
-                        new_format = ContextFormat(format_name.lower())
-                        self.context.set_format(new_format)
+                        new_format = HistoryFormat(format_name.lower())
+                        self.prompt.history.set_format(new_format)
                         print(f"Context format changed to: {new_format.value}")
                     except (ValueError, KeyError):
                         print("Invalid format. Use: xml, minimal, or text_only")

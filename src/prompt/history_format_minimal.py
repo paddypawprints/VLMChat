@@ -1,12 +1,12 @@
-from typing import List
+from typing import Tuple
+from .history_format_base import HistoryFormatBase
+from collections import deque
 
-from .base_context_format import BaseContextFormatting
-
-class MinimalContextFormatting(BaseContextFormatting):
+class HistoryFormatMinimal(HistoryFormatBase):
     """Minimal context formatting implementation."""
     
-    def __init__(self, word_limit: int = 15):
-        self.word_limit = word_limit
+    def __init__(self, **kwargs):
+        self.word_limit = kwargs.get("word_limit", 15)
     
     @property
     def format_name(self) -> str:
@@ -21,7 +21,7 @@ class MinimalContextFormatting(BaseContextFormatting):
             return f"U: {req} | A: {resp}"
         return f"U: {req}"
     
-    def format_context(self) -> str:
+    def format_history(self, pairs: deque[Tuple[str,str]]) -> str:
         """Format the entire conversation context in minimal style."""
         if not hasattr(self, '_pairs') or not self._pairs:
             return ""
