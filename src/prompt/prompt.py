@@ -1,3 +1,11 @@
+"""
+Prompt management and conversation facade.
+
+This module provides the Prompt class which serves as a facade for managing
+conversation prompts, history, and context. It integrates with the History
+class to provide a unified interface for prompt-related operations.
+"""
+
 from typing import List, Dict, Any, Optional
 from enum import Enum
 from PIL import Image
@@ -7,9 +15,22 @@ from src.prompt.history import History, HistoryFormat
 logger = logging.getLogger(__name__)
 
 class Prompt:
-    """Facade for all context-related operations."""
+    """
+    Facade for all prompt and context-related operations.
+
+    This class provides a unified interface for managing conversation prompts,
+    history, and context. It acts as a facade over the History class while
+    maintaining additional prompt-specific state.
+    """
 
     def __init__(self, **kwargs):
+        """
+        Initialize the prompt facade with history management.
+
+        Args:
+            **kwargs: Configuration parameters passed to History initialization
+                     including max_pairs, max_images, and history_format
+        """
         self._history = History(
             max_pairs=kwargs.get("max_pairs", 10),
             max_images=kwargs.get("max_images", 1),
@@ -21,24 +42,50 @@ class Prompt:
 
     @property
     def current_image(self) -> Optional[Image.Image]:
-        """Get the currently loaded image."""
+        """
+        Get the currently loaded image.
+
+        Returns:
+            Optional[Image.Image]: Current image if available, None otherwise
+        """
         return self._current_image
 
-    def add_assistant_response(self, user_input, assistant_response: str) -> None:
-        """Add a conversation pair to the context."""
-        self._history.add_pair(request_text=user_input, response_text=assistant_response)
-    
     @property
     def user_input(self) -> Optional[str]:
-        """Get the current user input."""
+        """
+        Get the current user input text.
+
+        Returns:
+            Optional[str]: Current user input if available, None otherwise
+        """
         return self._user_input
 
     @property
     def history(self) -> History:
-        """Get text-only version of context."""
+        """
+        Get the conversation history manager.
+
+        Returns:
+            History: The history management instance
+        """
         return self._history
 
+    def add_assistant_response(self, user_input: str, assistant_response: str) -> None:
+        """
+        Add a conversation pair to the history.
+
+        Args:
+            user_input: The user's input text
+            assistant_response: The assistant's response text
+        """
+        self._history.add_pair(request_text=user_input, response_text=assistant_response)
+
     def get_stats(self) -> Dict[str, Any]:
-        """Get context buffer statistics."""
+        """
+        Get conversation context statistics.
+
+        Returns:
+            Dict[str, Any]: Statistics about the conversation history
+        """
         return self._history.get_stats()
 

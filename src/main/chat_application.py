@@ -1,5 +1,11 @@
 # main/chat_application.py
-"""Main chat application orchestrating all components."""
+"""
+Main chat application orchestrating all components.
+
+This module contains the SmolVLMChatApplication class which serves as the main
+coordinator for the chat application. It integrates the SmolVLM model, prompt
+handling, image processing, camera capture, and user interface components.
+"""
 
 import logging
 from PIL import Image
@@ -17,116 +23,183 @@ logger = logging.getLogger(__name__)
 class SmolVLMChatApplication:
     """Main application class for SmolVLM chat interface."""
     
-    def __init__(self, 
-                 model_path: str = "HuggingFaceTB/SmolVLM2-256M-Instruct", 
-                 use_onnx: bool = True, 
+    def __init__(self,
+                 model_path: str = "HuggingFaceTB/SmolVLM2-256M-Instruct",
+                 use_onnx: bool = True,
                  max_pairs: int = 10,
                  max_images: int = 1,
                  history_format: HistoryFormat = HistoryFormat.XML):
         """
-        Initialize the chat application.
-        
+        Initialize the chat application with all required components.
+
+        Sets up the model configuration, loads the SmolVLM model with optional ONNX
+        runtime support, initializes the response generator, conversation history
+        manager, and camera interface.
+
         Args:
-            model_path: Path to the SmolVLM model
-            use_onnx: Whether to use ONNX runtime
-            max_context_pairs: Maximum number of conversation pairs to keep in context
-            max_context_images: Maximum number of images to keep in context
-            context_format: Format to use for conversation context (XML, minimal, or text_only)
+            model_path: Path to the SmolVLM model on HuggingFace Hub or local path
+            use_onnx: Whether to use ONNX runtime for faster inference
+            max_pairs: Maximum number of conversation pairs to keep in history
+            max_images: Maximum number of images to keep in context (currently limited to 1)
+            history_format: Format for conversation history (XML, MINIMAL)
+
+        Raises:
+            Exception: If model loading or component initialization fails
         """
-        # Setup logging
+        # Configure logging for this application instance
         logging.basicConfig(
-            level=logging.INFO, 
+            level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
-        
-        # Initialize components
-        self.config = ModelConfig(model_path=model_path)
-        self.model = SmolVLMModel(self.config, use_onnx=use_onnx)
-        self.response_generator = ResponseGenerator(self.model)
-        
-        # Initialize context facade only
-        self.prompt = Prompt(
+
+        # Initialize core model components
+        self._config = ModelConfig(model_path=model_path)
+        self._model = SmolVLMModel(self._config, use_onnx=use_onnx)
+        self._response_generator = ResponseGenerator(self._model)
+
+        # Initialize conversation management
+        self._prompt = Prompt(
             max_pairs=max_pairs,
             max_images=max_images,
             history_format=history_format
         )
-        
-        # Application state
-        # Remove current_image from application state
-        
-        # Initialize camera
-        self.camera = IMX500ObjectDetection()
+
+        # Initialize hardware interfaces
+        self._camera = IMX500ObjectDetection()
         
         logger.info("SmolVLM Chat Application initialized successfully")
 
+    @property
+    def config(self) -> ModelConfig:
+        """Get the model configuration."""
+        return self._config
+
+    @property
+    def model(self) -> SmolVLMModel:
+        """Get the SmolVLM model instance."""
+        return self._model
+
+    @property
+    def prompt(self) -> Prompt:
+        """Get the prompt manager."""
+        return self._prompt
+
+    @property
+    def camera(self) -> IMX500ObjectDetection:
+        """Get the camera interface."""
+        return self._camera
+
     def set_context_format(self, history_format: HistoryFormat) -> None:
-        """Set the context format."""
-        self.prompt.history.set_format(history_format)
+        """
+        Set the conversation history format.
+
+        Args:
+            history_format: New format to use for conversation history
+        """
+        self._prompt.history.set_format(history_format)
 
     def capture_from_camera(self) -> bool:
         """
         Capture an image from the camera and load it into the current context.
-        
+
+        Uses the IMX500 camera interface to capture a single image, saves it to disk,
+        and loads it into the conversation context for use in subsequent queries.
+
         Returns:
             bool: True if capture successful, False otherwise
+
+        Raises:
+            Exception: Camera or image processing errors are caught and logged
         """
         try:
-            filepath, image = self.camera.capture_single_image()
-            self.context.set_image_from_camera(image)
+            filepath, image = self._camera.capture_single_image()
+            self._prompt.history.set_current_image(image)
             print(f"Captured image saved to: {filepath}")
             return True
         except Exception as e:
             logger.error(f"Failed to capture image: {e}")
             return False
 
-   
+
     def process_query(self, user_input: str, stream_output: bool = True) -> str:
-        """Process a user query with the current image and conversation context."""
-        if not self.prompt.history.current_image:
+        """
+        Process a user query with the current image and conversation context.
+
+        Takes a user's text input, combines it with the current image and conversation
+        history to generate a contextually aware response using the SmolVLM model.
+
+        Args:
+            user_input: The user's text query or question
+            stream_output: Whether to stream the response as it's generated
+
+        Returns:
+            str: The model's generated response text
+
+        Raises:
+            Exception: Model generation errors are caught and returned as error messages
+        """
+        # Validate that an image is loaded before processing
+        if not self._prompt.history.current_image:
             return "No image loaded. Please load an image first."
-        
+
         logger.info("Processing user query with context")
-        
-        # Create messages with metadata and context
-        self.prompt._user_input = user_input  # Update user input in prompt
-        messages = self.model.get_messages(self.prompt)
-        
-        # Generate response using the generator
+
+        # Update the prompt with current user input
+        self._prompt._user_input = user_input
+        messages = self._model.get_messages(self._prompt)
+
+        # Generate response using the model
         try:
-            response = self.response_generator.generate_response(
+            response = self._response_generator.generate_response(
                 messages=messages,
-                images=[self.context.current_image],
+                images=[self._prompt.history.current_image],
                 stream_output=stream_output
             )
-            
-            # Add the conversation pair to context
-            self.prompt.history.add_conversation_pair(
+
+            # Add this interaction to conversation history
+            self._prompt.history.add_conversation_pair(
                 request_text=user_input,
                 response_text=response
             )
 
-            logger.info(f"Context stats: {self.prompt.history.get_stats()}")
+            logger.info(f"Context stats: {self._prompt.history.get_stats()}")
             return response
-            
+
         except Exception as e:
             logger.error(f"Error during generation: {e}")
             return f"Error generating response: {e}"
     
     def _print_help_message(self) -> None:
-        """Display available commands and their descriptions."""
-        print("Commands:")
-        print("  /load_url <url>  - Load image from URL")
-        print("  /load_file <path> - Load image from file")
-        print("  /clear_context   - Clear conversation history")
-        print("  /show_context    - Show current conversation history")
-        print("  /context_stats   - Show context buffer statistics")
-        print("  /quit - Exit the application")
-        print("  /help - Show this help message")
-        print("  /format <xml|minimal|text_only> - Change context format")
-        print("  /camera - Capture image from camera")
+        """
+        Display available commands and their descriptions.
 
-    def run_interactive_chat(self):
-        """Run the interactive chat loop."""
+        Prints a formatted list of all available slash commands that users can
+        use to interact with the chat application, including image loading,
+        context management, and application control commands.
+        """
+        print("Available Commands:")
+        print("  /load_url <url>     - Load image from URL for conversation")
+        print("  /load_file <path>   - Load image from local file path")
+        print("  /clear_context      - Clear conversation history")
+        print("  /show_context       - Display current conversation history")
+        print("  /context_stats      - Show context buffer statistics")
+        print("  /format <format>    - Change history format (xml|minimal)")
+        print("  /camera             - Capture image from camera")
+        print("  /help               - Show this help message")
+        print("  /quit               - Exit the application")
+
+    def run_interactive_chat(self) -> None:
+        """
+        Run the interactive chat loop.
+
+        Starts the main user interface loop that handles user input, processes
+        commands and queries, and manages the conversation flow. Continues until
+        the user exits with /quit or interrupts with Ctrl+C.
+
+        Raises:
+            KeyboardInterrupt: Handled gracefully to allow clean exit
+            Exception: Other exceptions are logged but don't crash the application
+        """
         print("=== SmolVLM Interactive Chat ===")
         self._print_help_message()
         print()
@@ -146,57 +219,64 @@ class SmolVLMChatApplication:
                     self._print_help_message()
                     continue
                 elif user_input.startswith('/load_url '):
+                    # Extract URL from command
                     url = user_input[10:].strip()
                     image = load_image_from_url(url)
                     if image:
                         print("Image loaded successfully!")
-                        self.prompt.history.set_current_image(image)
-                        self.prompt.history.clear_history()
+                        self._prompt.history.set_current_image(image)
+                        self._prompt.history.clear_history()
                         print("Conversation history cleared for new image.")
                     else:
                         print("Failed to load image.")
                     continue
                 elif user_input.startswith('/load_file '):
+                    # Extract file path from command
                     path = user_input[11:].strip()
                     image = load_image_from_file(path)
                     if image:
                         print("Image loaded successfully!")
-                        self.prompt.history.set_current_image(image)
-                        self.prompt.history.clear_history()
+                        self._prompt.history.set_current_image(image)
+                        self._prompt.history.clear_history()
                         print("Conversation history cleared for new image.")
                     else:
                         print("Failed to load image.")
                     continue
                 elif user_input.startswith('/clear_context'):
-                    self.prompt.history.clear_history()
+                    # Clear all conversation history
+                    self._prompt.history.clear_history()
                     print("Conversation history cleared.")
                     continue
                 elif user_input.startswith('/show_context'):
-                    print(str(self.prompt.history))
+                    # Display the current conversation history
+                    print(str(self._prompt.history))
                     continue
                 elif user_input.startswith('/context_stats'):
-                    stats = self.prompt.history.get_stats()
+                    # Show detailed statistics about conversation context
+                    stats = self._prompt.history.get_stats()
                     print("Context Buffer Statistics:")
                     for key, value in stats.items():
                         print(f"  {key}: {value}")
                     continue
                 elif user_input.startswith("/format"):
+                    # Change the conversation history formatting
                     try:
                         _, format_name = user_input.split(maxsplit=1)
                         new_format = HistoryFormat(format_name.lower())
-                        self.prompt.history.set_format(new_format)
+                        self._prompt.history.set_format(new_format)
                         print(f"Context format changed to: {new_format.value}")
                     except (ValueError, KeyError):
-                        print("Invalid format. Use: xml, minimal, or text_only")
+                        print("Invalid format. Use: xml or minimal")
                     continue
                 elif user_input.lower() == "/camera":
+                    # Capture image from camera
                     if self.capture_from_camera():
                         print("Image captured and ready for use in conversation")
                     else:
                         print("Failed to capture image")
                     continue
-            
-                # Process regular query
+
+                # Process regular query (not a command)
                 response = self.process_query(user_input)
                 
             except KeyboardInterrupt:
