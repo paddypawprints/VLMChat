@@ -17,6 +17,8 @@ class HistoryFormatXML(HistoryFormatBase):
     Formats conversation history using XML tags to provide clear structure
     and delineation between user requests and assistant responses.
     """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     @property
     def format_name(self) -> str:

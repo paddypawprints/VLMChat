@@ -51,3 +51,148 @@ The application can be configured through:
 - Model paths and parameters in `ModelConfig`
 - History limits and formatting in `History` class
 - Camera settings via command-line arguments
+
+## Testing
+
+The codebase includes a comprehensive test suite ensuring reliability, performance, and maintainability across all components.
+
+### Test Suite Overview
+
+The test suite is organized into focused test modules:
+
+- **`tests/test_prompt/`**: Complete test coverage for the prompt module
+  - Unit tests for conversation history management
+  - Integration tests for component interactions
+  - Performance tests for scalability
+  - Edge case tests for robustness
+
+### Running Tests
+
+#### Quick Start
+```bash
+# Run all prompt module tests
+python -m pytest src/tests/test_prompt/
+
+# Using the provided test runner
+python run_prompt_tests.py
+```
+
+#### Test Categories
+```bash
+# Unit tests only (fast)
+python run_prompt_tests.py --unit
+
+# Integration tests
+python run_prompt_tests.py --integration
+
+# Performance tests
+python run_prompt_tests.py --performance
+
+# Edge case and boundary tests
+python run_prompt_tests.py --edge-case
+
+# Quick test suite
+python run_prompt_tests.py --quick
+
+# Full test suite with coverage
+python run_prompt_tests.py --full
+```
+
+#### Advanced Testing Options
+```bash
+# Run with coverage report
+python run_prompt_tests.py --coverage
+
+# Run specific test file
+python run_prompt_tests.py --test-file test_history.py
+
+# Parallel execution (requires pytest-xdist)
+python run_prompt_tests.py --parallel 4
+
+# Verbose output
+python run_prompt_tests.py --verbose
+
+# Custom pytest arguments
+python run_prompt_tests.py --pytest-args "-k conversation"
+```
+
+### Test Coverage
+
+The test suite provides comprehensive coverage:
+
+#### Prompt Module (150+ tests)
+- ✅ **History Management**: Conversation storage, limits, clearing
+- ✅ **Image Handling**: Image setting, validation, memory management
+- ✅ **Format Management**: XML/minimal formatting, runtime switching
+- ✅ **Facade Pattern**: Prompt interface, delegation, consistency
+- ✅ **Factory Pattern**: Formatter creation, configuration, extensibility
+- ✅ **Integration**: End-to-end workflows, component coordination
+- ✅ **Performance**: Scalability, memory efficiency, large conversations
+- ✅ **Edge Cases**: Unicode support, error recovery, boundary conditions
+
+#### Performance Benchmarks
+- **1000 conversations**: < 1 second to process
+- **Format switching**: < 1 second for 100 operations
+- **Large text formatting**: < 0.1 second per operation
+- **Memory usage**: Bounded by conversation limits
+
+### Test Requirements
+
+#### Core Requirements
+```bash
+# Essential packages
+pip install pytest pillow
+```
+
+#### Optional Enhancements
+```bash
+# Coverage reporting
+pip install pytest-cov
+
+# Parallel test execution
+pip install pytest-xdist
+
+# Test timeouts
+pip install pytest-timeout
+
+# Performance benchmarking
+pip install pytest-benchmark
+```
+
+### Test Configuration
+
+The test suite uses pytest with custom configuration:
+
+- **Markers**: `unit`, `integration`, `performance`, `edge_case`
+- **Coverage**: HTML and terminal reports available
+- **Fixtures**: Comprehensive shared test data and utilities
+- **Parallel**: Supports parallel execution for faster runs
+
+### Development Testing
+
+For development workflows:
+
+```bash
+# Watch mode (requires pytest-watch)
+ptw src/tests/test_prompt/
+
+# Test specific functionality
+python -m pytest src/tests/test_prompt/test_history.py::TestHistoryInitialization
+
+# Debug failing tests
+python -m pytest src/tests/test_prompt/ --pdb
+
+# Generate coverage report
+python -m pytest src/tests/test_prompt/ --cov=src.prompt --cov-report=html
+```
+
+### Continuous Integration
+
+The test suite is designed for CI/CD integration:
+
+- **Exit codes**: Proper exit codes for CI systems
+- **Markers**: Allow selective test execution
+- **Reports**: Generate coverage and performance reports
+- **Timeouts**: Prevent hanging tests in CI environments
+
+For more detailed testing information, see the [test suite documentation](tests/test_prompt/README.md).

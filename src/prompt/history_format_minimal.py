@@ -29,6 +29,8 @@ class HistoryFormatMinimal(HistoryFormatBase):
                      word_limit (int): Maximum words per text segment (default: 15)
         """
         self._word_limit = kwargs.get("word_limit", 15)
+        if (self._word_limit < 1):
+            raise ValueError("word_limit must be at least 1")
 
     @property
     def format_name(self) -> str:
@@ -104,5 +106,5 @@ class HistoryFormatMinimal(HistoryFormatBase):
         words = text.split()
         if len(words) <= self._word_limit:
             return text
-        return ' '.join(words[:self._word_limit]) + '...'
+        return ' '.join(words[:self._word_limit]) + ' ...'
 

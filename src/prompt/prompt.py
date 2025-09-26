@@ -6,11 +6,11 @@ conversation prompts, history, and context. It integrates with the History
 class to provide a unified interface for prompt-related operations.
 """
 
-from typing import List, Dict, Any, Optional
-from enum import Enum
+from typing import Dict, Any, Optional
 from PIL import Image
 import logging
-from src.prompt.history import History, HistoryFormat
+from src.prompt.history import History
+from src.prompt.history_format import HistoryFormat
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +32,9 @@ class Prompt:
                      including max_pairs, max_images, and history_format
         """
         self._history = History(
-            max_pairs=kwargs.get("max_pairs", 10),
-            max_images=kwargs.get("max_images", 1),
-            history_format=kwargs.get("history_format", HistoryFormat.XML),
+            # max_pairs=kwargs.get("max_pairs", 10),
+            # max_images=kwargs.get("max_images", 1),
+            # history_format=kwargs.get("history_format", HistoryFormat.XML),
             **kwargs
         )
         self._current_image: Optional[Image.Image] = None
@@ -49,6 +49,14 @@ class Prompt:
             Optional[Image.Image]: Current image if available, None otherwise
         """
         return self._current_image
+    
+    @current_image.setter
+    def current_image(self, new_image: Optional[Image.Image]):
+        """Set the currently loaded image."""
+        # You can add validation logic here if needed
+        if new_image is not None and not isinstance(new_image, Image.Image):
+            raise TypeError("The provided value is not a valid Image object.")
+        self._current_image = new_image
 
     @property
     def user_input(self) -> Optional[str]:
@@ -78,7 +86,7 @@ class Prompt:
             user_input: The user's input text
             assistant_response: The assistant's response text
         """
-        self._history.add_pair(request_text=user_input, response_text=assistant_response)
+        self.history.add_conversation_pair(request_text=user_input, response_text=assistant_response)
 
     def get_stats(self) -> Dict[str, Any]:
         """

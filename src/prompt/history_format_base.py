@@ -19,6 +19,8 @@ class HistoryFormatBase(ABC):
     must implement, providing a consistent way to format conversation history
     for different use cases (XML, minimal, etc.).
     """
+    def __init__(self, **kwargs):
+        pass
 
     @property
     @abstractmethod

@@ -8,7 +8,7 @@ easy extensibility and configuration.
 
 from typing import Type, Dict
 from .history_format_base import HistoryFormatBase
-from .history import HistoryFormat
+from .history_format import HistoryFormat
 from .history_format_xml import HistoryFormatXML
 from .history_format_minimal import HistoryFormatMinimal
 
