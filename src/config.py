@@ -52,6 +52,10 @@ class ModelConfig(BaseModel):
         default=True,
         description="Whether to use ONNX runtime for faster inference"
     )
+    onnx_base_path: str = Field(
+        default="~/onnx",
+        description="Base directory for ONNX model files"
+    )
 
     @validator('model_path')
     def validate_model_path(cls, v):
@@ -59,6 +63,30 @@ class ModelConfig(BaseModel):
         if not v.strip():
             raise ValueError("Model path cannot be empty")
         return v.strip()
+
+    @validator('onnx_base_path')
+    def expand_onnx_path(cls, v):
+        """Expand user path and validate ONNX base path."""
+        from pathlib import Path
+        expanded_path = Path(v).expanduser().absolute()
+        return str(expanded_path)
+
+    def get_onnx_model_path(self) -> Path:
+        """
+        Get the full ONNX model path by combining base path with model path.
+
+        Returns:
+            Path: Full path to ONNX model directory
+        """
+        from pathlib import Path
+        import hashlib
+
+        # Create a safe directory name from model path
+        safe_name = hashlib.md5(self.model_path.encode()).hexdigest()[:16]
+        model_name = self.model_path.split('/')[-1] if '/' in self.model_path else self.model_path
+        onnx_dir = f"{model_name}_{safe_name}"
+
+        return Path(self.onnx_base_path) / onnx_dir
 
 
 class ConversationConfig(BaseModel):
@@ -223,6 +251,8 @@ class VLMChatConfig(BaseModel):
             model_dict["eos_token_id"] = int(os.environ[f"{prefix}EOS_TOKEN_ID"])
         if f"{prefix}USE_ONNX" in os.environ:
             model_dict["use_onnx"] = os.environ[f"{prefix}USE_ONNX"].lower() in ('true', '1', 'yes')
+        if f"{prefix}ONNX_BASE_PATH" in os.environ:
+            model_dict["onnx_base_path"] = os.environ[f"{prefix}ONNX_BASE_PATH"]
         if model_dict:
             config_dict["model"] = model_dict
 

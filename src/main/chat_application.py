@@ -10,13 +10,13 @@ handling, image processing, camera capture, and user interface components.
 import logging
 from PIL import Image
 
-from src.models.SmolVLM.smol_vlm_model import SmolVLMModel  # Change this line
-from src.models.SmolVLM.model_config import ModelConfig
+from models.SmolVLM.smol_vlm_model import SmolVLMModel
+from models.SmolVLM.model_config import ModelConfig
 from utils.image_utils import load_image_from_url, load_image_from_file
-from src.prompt.prompt import Prompt,HistoryFormat
+from prompt.prompt import Prompt,HistoryFormat
 from utils.camera import IMX500ObjectDetection
 
-from src.models.SmolVLM.response_generator import ResponseGenerator
+from models.SmolVLM.response_generator import ResponseGenerator
 
 logger = logging.getLogger(__name__)
 

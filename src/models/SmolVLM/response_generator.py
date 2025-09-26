@@ -8,7 +8,7 @@ transformers inference with optional streaming output.
 
 import logging
 from typing import List, Dict, Any
-from src.models.SmolVLM.smol_vlm_model import SmolVLMModel
+from models.SmolVLM.smol_vlm_model import SmolVLMModel
 
 logger = logging.getLogger(__name__)
 

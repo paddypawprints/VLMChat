@@ -15,9 +15,9 @@ import logging
 from typing import List, Dict, Any, Generator
 from transformers import AutoConfig, AutoProcessor, AutoModelForImageTextToText
 from PIL import Image
-from src.prompt.prompt import Prompt, History
+from prompt.prompt import Prompt, History
 
-from src.models.SmolVLM.model_config import ModelConfig
+from models.SmolVLM.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -94,20 +94,37 @@ class SmolVLMModel:
         """
         Load ONNX runtime inference sessions for optimized execution.
 
-        Attempts to load pre-exported ONNX models for vision encoding,
-        token embedding, and decoder inference. Falls back to transformers
-        if ONNX models are not available.
+        Attempts to load pre-exported ONNX models from the configured ONNX path.
+        Falls back to transformers if ONNX models are not available or path doesn't exist.
 
         Raises:
             Exception: ONNX loading errors are caught and logged
         """
         try:
-            self._vision_session = onnxruntime.InferenceSession("vision_encoder.onnx")
-            self._embed_session = onnxruntime.InferenceSession("embed_tokens.onnx")
-            self._decoder_session = onnxruntime.InferenceSession("decoder_model_merged.onnx")
-            logger.info("ONNX sessions loaded successfully")
+            from utils.onnx_utils import get_onnx_file_paths, setup_onnx_environment
+            from config import get_config
+
+            config = get_config()
+
+            # Use ONNX utilities to check if ONNX can be used
+            if not setup_onnx_environment(config):
+                self._use_onnx = False
+                return
+
+            # Get ONNX model path and file paths
+            onnx_model_path = config.model.get_onnx_model_path()
+            onnx_files = get_onnx_file_paths(onnx_model_path)
+
+            # Load ONNX sessions
+            self._vision_session = onnxruntime.InferenceSession(str(onnx_files["vision_encoder"]))
+            self._embed_session = onnxruntime.InferenceSession(str(onnx_files["embed_tokens"]))
+            self._decoder_session = onnxruntime.InferenceSession(str(onnx_files["decoder"]))
+
+            logger.info(f"ONNX sessions loaded successfully from: {onnx_model_path}")
+
         except Exception as e:
             logger.error(f"Failed to load ONNX sessions: {e}")
+            logger.info("Falling back to transformers inference")
             self._use_onnx = False
     
     def _setup_onnx_config(self):

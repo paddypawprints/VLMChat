@@ -26,7 +26,8 @@ Controls the SmolVLM model behavior:
     "model_path": "HuggingFaceTB/SmolVLM2-256M-Instruct",
     "max_new_tokens": 1024,
     "eos_token_id": 198,
-    "use_onnx": true
+    "use_onnx": true,
+    "onnx_base_path": "~/onnx"
   }
 }
 ```
@@ -35,6 +36,7 @@ Controls the SmolVLM model behavior:
 - **max_new_tokens**: Maximum tokens to generate (1-4096)
 - **eos_token_id**: End-of-sequence token ID (≥0)
 - **use_onnx**: Whether to use ONNX runtime for optimization
+- **onnx_base_path**: Base directory for ONNX model files (default: ~/onnx)
 
 ### Conversation Configuration (`config.conversation`)
 
@@ -89,6 +91,64 @@ Controls file paths and directories:
 - **project_root**: Application root directory (auto-detected if not set)
 - **coco_labels_path**: Path to COCO labels file (relative to project_root)
 - **captured_images_dir**: Directory for saving captured images
+
+## ONNX Configuration
+
+The application supports ONNX runtime optimization for faster inference. ONNX model files are stored in a directory structure based on the model path:
+
+### ONNX Directory Structure
+
+The ONNX directory is created by combining the base path with a model-specific subdirectory:
+
+```
+<onnx_base_path>/<model_name>_<hash>/
+├── vision_encoder.onnx
+├── embed_tokens.onnx
+└── decoder_model_merged.onnx
+```
+
+### ONNX Status Commands
+
+Check ONNX availability and model status:
+
+```bash
+# Display ONNX model information
+python src/main.py --onnx-info
+
+# Check with custom configuration
+python src/main.py --config my_config.json --onnx-info
+```
+
+### ONNX Configuration Examples
+
+Enable ONNX with custom path:
+```json
+{
+  "model": {
+    "use_onnx": true,
+    "onnx_base_path": "/path/to/onnx/models"
+  }
+}
+```
+
+Disable ONNX (use transformers fallback):
+```json
+{
+  "model": {
+    "use_onnx": false
+  }
+}
+```
+
+### ONNX Fallback Behavior
+
+The application automatically falls back to transformers inference when:
+- ONNX runtime is not installed
+- ONNX is disabled in configuration (`use_onnx: false`)
+- ONNX model directory doesn't exist
+- Required ONNX model files are missing
+
+This ensures the application always works, with ONNX providing optional performance optimization.
 
 ## Usage Methods
 
@@ -166,7 +226,7 @@ python src/main.py
 
 **Available environment variables:**
 
-- **Model**: `VLMCHAT_MODEL_PATH`, `VLMCHAT_MAX_NEW_TOKENS`, `VLMCHAT_EOS_TOKEN_ID`, `VLMCHAT_USE_ONNX`
+- **Model**: `VLMCHAT_MODEL_PATH`, `VLMCHAT_MAX_NEW_TOKENS`, `VLMCHAT_EOS_TOKEN_ID`, `VLMCHAT_USE_ONNX`, `VLMCHAT_ONNX_BASE_PATH`
 - **Conversation**: `VLMCHAT_MAX_PAIRS`, `VLMCHAT_MAX_IMAGES`, `VLMCHAT_HISTORY_FORMAT`, `VLMCHAT_WORD_LIMIT`
 - **Logging**: `VLMCHAT_LOG_LEVEL`, `VLMCHAT_LOG_FORMAT`
 - **Paths**: `VLMCHAT_PROJECT_ROOT`, `VLMCHAT_COCO_LABELS_PATH`, `VLMCHAT_CAPTURED_IMAGES_DIR`
@@ -281,6 +341,7 @@ The configuration system replaces the following hardcoded values:
 | `1024` (max_new_tokens) | `config.model.max_new_tokens` |
 | `198` (eos_token_id) | `config.model.eos_token_id` |
 | `True` (use_onnx) | `config.model.use_onnx` |
+| `"~/onnx"` (onnx_base_path) | `config.model.onnx_base_path` |
 | `10` (max_pairs) | `config.conversation.max_pairs` |
 | `1` (max_images) | `config.conversation.max_images` |
 | `HistoryFormat.XML` | `config.conversation.history_format` |

@@ -55,6 +55,11 @@ Examples:
         default="config.json",
         help="Output path for created configuration file (default: config.json)"
     )
+    parser.add_argument(
+        "--onnx-info",
+        action="store_true",
+        help="Show ONNX model information and exit"
+    )
 
     return parser.parse_args()
 
@@ -75,6 +80,35 @@ def main():
     # Handle config file creation
     if args.create_config:
         create_default_config_file(args.config_output)
+        return
+
+    # Handle ONNX info display
+    if args.onnx_info:
+        from utils.onnx_utils import get_onnx_model_info
+        config = load_config(args.config) if args.config else load_config()
+        info = get_onnx_model_info(config.model.model_path, config.model.onnx_base_path)
+
+        print("ONNX Model Information:")
+        print("=" * 50)
+        print(f"  Model path: {info['model_path']}")
+        print(f"  ONNX base path: {info['onnx_base_path']}")
+        print(f"  ONNX model directory: {info['onnx_path']}")
+        print(f"  Directory exists: {info['directory_exists']}")
+        print(f"  All ONNX files exist: {info['all_files_exist']}")
+
+        if info['missing_files']:
+            print(f"  Missing files: {', '.join(info['missing_files'])}")
+
+        print(f"  Can use ONNX: {info['can_use_onnx']}")
+
+        if not info['can_use_onnx']:
+            print("\nTo enable ONNX inference:")
+            print(f"  1. Create directory: {info['onnx_path']}")
+            print("  2. Add required ONNX files:")
+            for filename in info['required_files']:
+                status = "✓" if filename.replace('.onnx', '') + '.onnx' not in info['missing_files'] else "✗"
+                print(f"     {status} {filename}")
+
         return
 
     try:

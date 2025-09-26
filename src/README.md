@@ -32,6 +32,9 @@ The codebase follows a modular architecture with clear separation of concerns:
 # Run the application
 python3 src/main.py
 
+# Check ONNX model status
+python3 src/main.py --onnx-info
+
 # Load an image and start chatting
 /load_url https://example.com/image.jpg
 What do you see in this image?
