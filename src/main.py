@@ -3,11 +3,13 @@
 Entry point for the SmolVLM chat application.
 
 This module serves as the main entry point for the SmolVLM (Small Vision Language Model)
-chat application. It configures logging, sets up the Python path, and initializes
-the chat application with default parameters.
+chat application. It loads configuration, sets up the Python path, and initializes
+the chat application with configured parameters.
 """
 
 import sys
+import os
+import argparse
 from pathlib import Path
 import logging
 
@@ -16,34 +18,91 @@ PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from main.chat_application import SmolVLMChatApplication
+from config import load_config, create_default_config_file, get_config
+
+
+def parse_arguments():
+    """
+    Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="SmolVLM Chat Application",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python src/main.py                           # Use default configuration
+  python src/main.py --config config.json     # Use custom configuration file
+  python src/main.py --create-config          # Create default config.json file
+        """
+    )
+
+    parser.add_argument(
+        "--config", "-c",
+        type=str,
+        help="Path to configuration file (JSON or YAML)"
+    )
+    parser.add_argument(
+        "--create-config",
+        action="store_true",
+        help="Create a default configuration file and exit"
+    )
+    parser.add_argument(
+        "--config-output", "-o",
+        type=str,
+        default="config.json",
+        help="Output path for created configuration file (default: config.json)"
+    )
+
+    return parser.parse_args()
 
 
 def main():
     """
     Main entry point for the SmolVLM chat application.
 
-    Configures logging, initializes the chat application with default model settings,
+    Loads configuration, configures logging, initializes the chat application,
     and starts the interactive chat loop. Handles any initialization errors gracefully.
 
     Raises:
         Exception: Any unhandled exceptions during application startup are logged
                   and displayed to the user.
     """
+    args = parse_arguments()
+
+    # Handle config file creation
+    if args.create_config:
+        create_default_config_file(args.config_output)
+        return
+
     try:
-        # Configure application-wide logging with timestamp and level
+        # Load configuration from file or environment variables
+        if args.config:
+            config = load_config(args.config)
+            print(f"Loaded configuration from: {args.config}")
+        else:
+            # Try to load from environment variables or use defaults
+            config = load_config()
+            print("Using configuration from environment variables or defaults")
+
+        # Configure application-wide logging using loaded configuration
         logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+            level=getattr(logging, config.logging.level),
+            format=config.logging.format
         )
 
         # Log environment information for debugging
         logging.info(f"Using Python: {sys.executable}")
-        logging.info(f"Project root: {PROJECT_ROOT}")
+        logging.info(f"Project root: {config.paths.project_root}")
+        logging.info(f"Model path: {config.model.model_path}")
+        logging.info(f"Max conversation pairs: {config.conversation.max_pairs}")
+        logging.info(f"History format: {config.conversation.history_format}")
+        logging.info(f"ONNX enabled: {config.model.use_onnx}")
 
-        # Initialize chat application with HuggingFace SmolVLM model
-        app = SmolVLMChatApplication(
-            model_path="HuggingFaceTB/SmolVLM2-256M-Instruct"
-        )
+        # Initialize chat application (it will use the global configuration)
+        app = SmolVLMChatApplication()
 
         # Start the interactive chat interface
         app.run_interactive_chat()
@@ -52,6 +111,7 @@ def main():
         # Log and display any startup errors
         logging.error(f"Application error: {e}")
         print(f"Failed to start application: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

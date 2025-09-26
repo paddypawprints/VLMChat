@@ -24,33 +24,54 @@ class SmolVLMChatApplication:
     """Main application class for SmolVLM chat interface."""
     
     def __init__(self,
-                 model_path: str = "HuggingFaceTB/SmolVLM2-256M-Instruct",
-                 use_onnx: bool = True,
-                 max_pairs: int = 10,
-                 max_images: int = 1,
-                 history_format: HistoryFormat = HistoryFormat.XML):
+                 model_path: str = None,
+                 use_onnx: bool = None,
+                 max_pairs: int = None,
+                 max_images: int = None,
+                 history_format: HistoryFormat = None):
         """
         Initialize the chat application with all required components.
 
         Sets up the model configuration, loads the SmolVLM model with optional ONNX
         runtime support, initializes the response generator, conversation history
-        manager, and camera interface.
+        manager, and camera interface. Configuration values are loaded from the
+        global application configuration if not explicitly provided.
 
         Args:
-            model_path: Path to the SmolVLM model on HuggingFace Hub or local path
-            use_onnx: Whether to use ONNX runtime for faster inference
-            max_pairs: Maximum number of conversation pairs to keep in history
-            max_images: Maximum number of images to keep in context (currently limited to 1)
-            history_format: Format for conversation history (XML, MINIMAL)
+            model_path: Path to the SmolVLM model on HuggingFace Hub or local path (optional)
+            use_onnx: Whether to use ONNX runtime for faster inference (optional)
+            max_pairs: Maximum number of conversation pairs to keep in history (optional)
+            max_images: Maximum number of images to keep in context (optional)
+            history_format: Format for conversation history (XML, MINIMAL) (optional)
 
         Raises:
             Exception: If model loading or component initialization fails
         """
-        # Configure logging for this application instance
+        # Import here to avoid circular imports
+        from src.config import get_config
+
+        # Get global configuration
+        config = get_config()
+
+        # Configure logging from global configuration
         logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+            level=getattr(logging, config.logging.level),
+            format=config.logging.format
         )
+
+        # Use configuration values if parameters not provided
+        if model_path is None:
+            model_path = config.model.model_path
+        if use_onnx is None:
+            use_onnx = config.model.use_onnx
+        if max_pairs is None:
+            max_pairs = config.conversation.max_pairs
+        if max_images is None:
+            max_images = config.conversation.max_images
+        if history_format is None:
+            # Convert string to enum
+            from src.prompt.history_format import HistoryFormat as ConfigHistoryFormat
+            history_format = ConfigHistoryFormat(config.conversation.history_format.value)
 
         # Initialize core model components
         self._config = ModelConfig(model_path=model_path)

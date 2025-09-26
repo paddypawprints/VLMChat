@@ -26,9 +26,15 @@ class HistoryFormatMinimal(HistoryFormatBase):
 
         Args:
             **kwargs: Configuration options including:
-                     word_limit (int): Maximum words per text segment (default: 15)
+                     word_limit (int): Maximum words per text segment (uses global config default)
         """
-        self._word_limit = kwargs.get("word_limit", 15)
+        # Import here to avoid circular imports
+        from src.config import get_config
+
+        config = get_config()
+
+        # Use provided value or fall back to global configuration
+        self._word_limit = kwargs.get("word_limit", config.conversation.word_limit)
         if (self._word_limit < 1):
             raise ValueError("word_limit must be at least 1")
 

@@ -47,10 +47,36 @@ What do you see in this image?
 
 ## Configuration
 
-The application can be configured through:
-- Model paths and parameters in `ModelConfig`
-- History limits and formatting in `History` class
-- Camera settings via command-line arguments
+The application uses a centralized Pydantic-based configuration system that supports:
+
+### Configuration Methods
+- **Default values**: Sensible defaults for all settings
+- **Configuration files**: JSON or YAML format configuration files
+- **Environment variables**: Override settings with `VLMCHAT_` prefixed variables
+- **Command-line options**: Specify config file or create default config
+
+### Quick Configuration
+```bash
+# Create default configuration file
+python src/main.py --create-config
+
+# Use custom configuration file
+python src/main.py --config my_config.json
+
+# Use environment variables
+export VLMCHAT_MODEL_PATH="my_custom_model"
+export VLMCHAT_MAX_PAIRS="20"
+export VLMCHAT_LOG_LEVEL="DEBUG"
+python src/main.py
+```
+
+### Configuration Sections
+- **Model**: Model paths, token limits, ONNX settings
+- **Conversation**: History limits, formatting, word limits
+- **Logging**: Log levels and format strings
+- **Paths**: File paths and directories
+
+For detailed configuration documentation, see [CONFIG.md](../CONFIG.md).
 
 ## Testing
 

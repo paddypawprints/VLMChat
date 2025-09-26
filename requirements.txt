@@ -1,0 +1,21 @@
+# Core dependencies for VLMChat application
+pydantic>=2.0.0
+torch
+transformers
+pillow
+requests
+
+# Optional dependencies for enhanced functionality
+onnxruntime  # For optimized model inference
+pyyaml       # For YAML configuration file support
+
+# Raspberry Pi specific dependencies (install only on Pi)
+# picamera2    # For Raspberry Pi camera integration
+# numpy        # For array operations (may already be installed with torch)
+
+# Development and testing dependencies
+pytest
+pytest-cov
+pytest-xdist
+pytest-timeout
+pytest-benchmark

@@ -93,7 +93,11 @@ class IMX500ObjectDetection:
 
         # Load default COCO labels if none provided
         if self._intrinsics.labels is None:
-            with open("assets/coco_labels.txt", "r") as f:
+            # Import here to avoid circular imports
+            from src.config import get_config
+            config = get_config()
+            coco_labels_path = os.path.join(config.paths.project_root, config.paths.coco_labels_path)
+            with open(coco_labels_path, "r") as f:
                 self._intrinsics.labels = f.read().splitlines()
         self._intrinsics.update_with_defaults()
 
@@ -116,8 +120,10 @@ class IMX500ObjectDetection:
         self._pool = multiprocessing.Pool(processes=4)
         self._jobs = queue.Queue()
 
-        # Create directory for captured images
-        self._save_path = "captured_images"
+        # Create directory for captured images using configuration
+        from src.config import get_config
+        config = get_config()
+        self._save_path = config.paths.captured_images_dir
         if not os.path.exists(self._save_path):
             os.makedirs(self._save_path)
 
