@@ -162,7 +162,7 @@ class SmolVLMModel:
         logger.info(f"EOS token: {self._tokenizer.eos_token}")
         logger.info(f"EOS token ID: {self._tokenizer.eos_token_id}")
     
-    def prepare_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, np.ndarray]:
+    def prepare_onnx_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, np.ndarray]:
         """
         Prepare model inputs from messages and images.
 
@@ -282,6 +282,17 @@ class SmolVLMModel:
             # Yield decoded token for streaming
             yield self._processor.decode(input_ids[0])
                    
+    def prepare_transformers_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, np.ndarray]:
+        inputs = self._processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(self._model.device, dtype=torch.bfloat16)
+        return inputs
+
+
     def generate_transformers(self, inputs: Dict[str, Any], max_new_tokens: int = None) -> str:
         """
         Generate text using transformers library (fallback method).
@@ -300,17 +311,13 @@ class SmolVLMModel:
         if max_new_tokens is None:
             max_new_tokens = self._config.max_new_tokens
 
-        # Generate text without gradient computation for inference
-        with torch.no_grad():
-            outputs = self._model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False  # Use greedy decoding for deterministic output
-            )
-
-        # Decode generated tokens back to text
-        return self._processor.batch_decode(outputs, skip_special_tokens=True)[0]
-
+        generated_ids = self._model.generate(**inputs, do_sample=False, max_new_tokens=64)
+        generated_texts = self._processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+        )
+        return generated_texts[0]
+    
     def get_messages(self, prompt: Prompt) -> List[Dict[str, Any]]:
         """
         Convert a Prompt object into the message format expected by the model.

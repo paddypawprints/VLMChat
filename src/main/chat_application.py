@@ -48,7 +48,7 @@ class SmolVLMChatApplication:
             Exception: If model loading or component initialization fails
         """
         # Import here to avoid circular imports
-        from src.config import get_config
+        from config import get_config
 
         # Get global configuration
         config = get_config()
@@ -70,7 +70,7 @@ class SmolVLMChatApplication:
             max_images = config.conversation.max_images
         if history_format is None:
             # Convert string to enum
-            from src.prompt.history_format import HistoryFormat as ConfigHistoryFormat
+            from prompt.history_format import HistoryFormat as ConfigHistoryFormat
             history_format = ConfigHistoryFormat(config.conversation.history_format.value)
 
         # Initialize core model components
@@ -134,7 +134,7 @@ class SmolVLMChatApplication:
         """
         try:
             filepath, image = self._camera.capture_single_image()
-            self._prompt.history.set_current_image(image)
+            self._prompt.current_image = image
             print(f"Captured image saved to: {filepath}")
             return True
         except Exception as e:
@@ -160,7 +160,7 @@ class SmolVLMChatApplication:
             Exception: Model generation errors are caught and returned as error messages
         """
         # Validate that an image is loaded before processing
-        if not self._prompt.history.current_image:
+        if not self._prompt.current_image:
             return "No image loaded. Please load an image first."
 
         logger.info("Processing user query with context")
@@ -173,7 +173,7 @@ class SmolVLMChatApplication:
         try:
             response = self._response_generator.generate_response(
                 messages=messages,
-                images=[self._prompt.history.current_image],
+                images=[self._prompt.current_image],
                 stream_output=stream_output
             )
 
@@ -299,6 +299,7 @@ class SmolVLMChatApplication:
 
                 # Process regular query (not a command)
                 response = self.process_query(user_input)
+                print(f"\nSmolVLM: {response}")
                 
             except KeyboardInterrupt:
                 print("\nGoodbye!")

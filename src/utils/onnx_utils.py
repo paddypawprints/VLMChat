@@ -8,6 +8,7 @@ including path creation and validation.
 import logging
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -199,3 +200,4 @@ def setup_onnx_environment(config) -> bool:
 
     logger.info(f"ONNX models found and ready: {onnx_path}")
     return True
+

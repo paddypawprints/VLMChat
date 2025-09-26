@@ -8,6 +8,7 @@ configuration files.
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, validator, ConfigDict
@@ -82,11 +83,9 @@ class ModelConfig(BaseModel):
         import hashlib
 
         # Create a safe directory name from model path
-        safe_name = hashlib.md5(self.model_path.encode()).hexdigest()[:16]
         model_name = self.model_path.split('/')[-1] if '/' in self.model_path else self.model_path
-        onnx_dir = f"{model_name}_{safe_name}"
 
-        return Path(self.onnx_base_path) / onnx_dir
+        return Path(expand_path(self.onnx_base_path)) / model_name
 
 
 class ConversationConfig(BaseModel):
@@ -372,7 +371,30 @@ def create_default_config_file(config_path: str = "config.json") -> None:
     default_config.save_to_file(config_path)
     print(f"Default configuration saved to: {config_path}")
 
+def expand_path(file_path: str) -> str:
+    """
+    Expands a file path to an absolute path.
+
+    If the path is relative, it prepends the user's home directory.
+    If the path is already absolute, it returns it unchanged.
+
+    Args:
+        file_path: The file path to expand.
+
+    Returns:
+        The absolute file path.
+    """
+    # os.path.expanduser handles paths starting with '~'
+    expanded_path = os.path.expanduser(file_path)
+
+    # If the path is still not absolute, join it with the home directory
+    if not os.path.isabs(expanded_path):
+        home_dir = os.path.expanduser('~')
+        return os.path.join(home_dir, expanded_path)
+
+    return expanded_path
 
 if __name__ == "__main__":
     # Create a sample configuration file when run directly
     create_default_config_file()
+

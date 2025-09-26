@@ -57,15 +57,17 @@ class ResponseGenerator:
             Exception: Re-raises any model generation errors after logging
         """
         # Prepare model inputs from messages and images
-        inputs = self._model.prepare_inputs(messages, images)
 
         try:
             # Choose generation method based on model configuration
             if self._model.use_onnx and stream_output:
+                inputs = self._model.prepare_onnx_inputs(messages, images)
                 return self._generate_streaming_onnx(inputs)
             elif self._model.use_onnx:
+                inputs = self._model.prepare_onnx_inputs(messages, images)
                 return self._generate_streaming_onnx(inputs)
             else:
+                inputs = self._model.prepare_transformers_inputs(messages, images)
                 return self._model.generate_transformers(inputs)
 
         except Exception as e:

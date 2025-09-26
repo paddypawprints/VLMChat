@@ -29,7 +29,7 @@ class HistoryFormatMinimal(HistoryFormatBase):
                      word_limit (int): Maximum words per text segment (uses global config default)
         """
         # Import here to avoid circular imports
-        from src.config import get_config
+        from config import get_config
 
         config = get_config()
 
