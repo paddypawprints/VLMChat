@@ -32,34 +32,49 @@ if image:
     print(f"Loaded image: {image.size}")
 ```
 
-### camera.py
-IMX500 camera interface for Raspberry Pi with object detection capabilities.
+### Camera Architecture
+Abstract base class architecture supporting multiple camera models and platforms.
 
-**Key Classes:**
-- `Detection`: Represents a single object detection result
-- `IMX500ObjectDetection`: Main camera interface with neural processing
+**Files Structure:**
+- `camera_base.py` - Base camera interface with enums and BaseCamera abstract class
+- `detection_base.py` - Generic Detection class and ObjectDetectionInterface
+- `imx500_camera.py` - Basic IMX500Camera class (no detection)
+- `imx500_detection.py` - IMX500ObjectDetection class (inherits from both interfaces)
+- `camera_factory.py` - CameraFactory for creating camera instances
 
-**Features:**
-- **Hardware Integration**: Direct integration with Raspberry Pi IMX500 camera
-- **Object Detection**: Built-in neural network inference
-- **Image Capture**: Single image capture with timestamp naming
-- **Real-time Processing**: Continuous detection loop with async processing
-- **Configurable Parameters**: Adjustable detection thresholds and limits
+**Key Design Features:**
+- **Generic Detection class** - No IMX500 dependencies, uses integer coordinates
+- **Multiple inheritance** - IMX500ObjectDetection inherits from both interfaces
+- **Factory pattern** - `CameraFactory.create_camera()` with support for detection flag
+- **Extensible** - Ready for IMX477/IMX219 and Jetson platform support
+- **Clean separation** - Detection logic separate from basic camera functionality
 
 **Usage:**
 ```python
-from utils.camera import IMX500ObjectDetection
+from utils.camera_factory import CameraFactory
+from utils.camera_base import CameraModel, Platform, Device
 
-# Initialize camera
-camera = IMX500ObjectDetection()
+# Basic camera
+camera = CameraFactory.create_camera(CameraModel.IMX500)
 
-# Capture single image
-filepath, image = camera.capture_single_image()
-print(f"Image saved to: {filepath}")
+# Camera with detection
+detection_camera = CameraFactory.create_camera(
+    CameraModel.IMX500,
+    with_detection=True,
+    args=args
+)
 
-# Run continuous detection (blocking)
-camera.run_detection_loop()
+# Convenience method for detection
+detection_camera = CameraFactory.create_detection_camera(CameraModel.IMX500)
 ```
+
+**Supported Hardware:**
+- **Camera Models**: IMX500 (IMX477, IMX219 planned)
+- **Platforms**: Raspberry Pi (Jetson planned)
+- **Devices**: camera0, camera1
+
+### camera.py (Legacy)
+Original IMX500 camera interface - use camera_factory.py for new implementations.
 
 ## Image Processing
 

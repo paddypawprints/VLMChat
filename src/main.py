@@ -93,7 +93,7 @@ def main():
         print(f"  Model path: {info['model_path']}")
         print(f"  ONNX base path: {info['onnx_base_path']}")
         print(f"  ONNX model directory: {info['onnx_path']}")
-        print(f"  Directory exists: {info['directory_exists']}")
+        print(f"  Directory exists: {info['d/irectory_exists']}")
         print(f"  All ONNX files exist: {info['all_files_exist']}")
 
         if info['missing_files']:

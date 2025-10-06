@@ -56,6 +56,11 @@ class SmolVLMModel:
         if use_onnx:
             self._load_onnx_sessions()
             self._setup_onnx_config()
+
+        # Initialize metrics tracking (commented out - uncomment to enable)
+        # from utils.vlm_metrics import create_vlm_metrics_tracker
+        # self.metrics = create_vlm_metrics_tracker(self, enabled=True)
+        self.metrics = None  # Placeholder - replace with line above to enable
     
     @property
     def config(self) -> ModelConfig:
@@ -226,7 +231,26 @@ class SmolVLMModel:
 
         if max_new_tokens is None:
             max_new_tokens = self._config.max_new_tokens
-        
+
+        # Metrics tracking setup (commented out - uncomment to enable)
+        # if hasattr(self, 'metrics'):
+        #     input_tokens = inputs['input_ids'].shape[1] if 'input_ids' in inputs else 0
+        #     input_images = inputs['pixel_values'].shape[0] if 'pixel_values' in inputs else 0
+        #     self.metrics.record_input_processing(
+        #         input_tokens=input_tokens,
+        #         input_images=input_images,
+        #         image_resolution=(224, 224)  # Adjust based on actual resolution
+        #     )
+
+        # Track total inference time (commented out - uncomment to enable)
+        # if hasattr(self, 'metrics'):
+        #     with self.metrics.track_total_inference() as tracker:
+        #         yield from self._generate_onnx_with_metrics(inputs, max_new_tokens, tracker)
+        # else:
+        yield from self._generate_onnx_core(inputs, max_new_tokens)
+
+    def _generate_onnx_core(self, inputs: Dict[str, np.ndarray], max_new_tokens: int) -> Generator[str, None, None]:
+        """Core ONNX generation logic separated for metrics integration."""
         # Initialize generation state
         batch_size = inputs['input_ids'].shape[0]
         past_key_values = self._initialize_past_key_values(batch_size)
@@ -236,14 +260,31 @@ class SmolVLMModel:
         position_ids = np.cumsum(inputs['attention_mask'], axis=-1)
 
         generated_tokens = np.array([[]], dtype=np.int64)
-        
+
         # Autoregressive generation loop
         for i in range(max_new_tokens):
             # Convert token IDs to embeddings
+            # Metrics: Track token embedding (commented out - uncomment to enable)
+            # if hasattr(self, 'metrics') and hasattr(tracker, 'track_token_embedding'):
+            #     with tracker.track_token_embedding(token_count=input_ids.size):
+            #         inputs_embeds = self._embed_session.run(None, {'input_ids': input_ids})[0]
+            # else:
             inputs_embeds = self._embed_session.run(None, {'input_ids': input_ids})[0]
 
             # Process image features on first iteration
             if image_features is None:
+                # Metrics: Track vision encoding (commented out - uncomment to enable)
+                # if hasattr(self, 'metrics') and hasattr(tracker, 'track_vision_encoding'):
+                #     input_images = inputs['pixel_values'].shape[0] if 'pixel_values' in inputs else 1
+                #     with tracker.track_vision_encoding(image_count=input_images):
+                #         image_features = self._vision_session.run(
+                #             ['image_features'],
+                #             {
+                #                 'pixel_values': inputs['pixel_values'],
+                #                 'pixel_attention_mask': inputs['pixel_attention_mask'].astype(np.bool_)
+                #             }
+                #         )[0]
+                # else:
                 image_features = self._vision_session.run(
                     ['image_features'],
                     {
@@ -251,12 +292,25 @@ class SmolVLMModel:
                         'pixel_attention_mask': inputs['pixel_attention_mask'].astype(np.bool_)
                     }
                 )[0]
+                print(image_features.shape)
+                print(inputs['pixel_values'].shape)
+                print(inputs['pixel_attention_mask'].shape)
 
                 # Replace image token embeddings with actual image features
                 inputs_embeds[inputs['input_ids'] == self._image_token_id] = \
                     image_features.reshape(-1, image_features.shape[-1])
-            
+
             # Run transformer decoder
+            # Metrics: Track text generation step (commented out - uncomment to enable)
+            # if hasattr(self, 'metrics') and hasattr(tracker, 'track_text_generation_step'):
+            #     with tracker.track_text_generation_step(step_number=i+1):
+            #         logits, *present_key_values = self._decoder_session.run(None, dict(
+            #             inputs_embeds=inputs_embeds,
+            #             attention_mask=attention_mask,
+            #             position_ids=position_ids,
+            #             **past_key_values,
+            #         ))
+            # else:
             logits, *present_key_values = self._decoder_session.run(None, dict(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
@@ -275,12 +329,27 @@ class SmolVLMModel:
 
             generated_tokens = np.concatenate([generated_tokens, input_ids], axis=-1)
 
+            # Metrics: Record generation step (commented out - uncomment to enable)
+            # if hasattr(self, 'metrics') and hasattr(tracker, 'record_generation_step'):
+            #     tracker.record_generation_step(
+            #         token_id=int(input_ids[0, 0]),
+            #         step_number=i+1
+            #     )
+
             # Check for end-of-sequence token
             if (input_ids == self._config.eos_token_id).any():
                 break
 
             # Yield decoded token for streaming
             yield self._processor.decode(input_ids[0])
+
+        # Metrics: Export metrics after generation (commented out - uncomment to enable)
+        # if hasattr(self, 'metrics'):
+        #     try:
+        #         metrics_file = self.metrics.export_metrics()
+        #         logger.info(f"Metrics exported to: {metrics_file}")
+        #     except Exception as e:
+        #         logger.warning(f"Failed to export metrics: {e}")
                    
     def prepare_transformers_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, np.ndarray]:
         inputs = self._processor.apply_chat_template(
