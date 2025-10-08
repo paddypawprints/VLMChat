@@ -9,8 +9,6 @@ from typing import Union
 
 from .camera_base import BaseCamera, CameraModel, Platform, Device
 from .detection_base import ObjectDetectionInterface
-from .imx500_camera import IMX500Camera
-from .imx500_detection import IMX500ObjectDetection
 
 
 class CameraFactory:
@@ -46,22 +44,27 @@ class CameraFactory:
             ValueError: If unsupported model/platform combination is requested
             NotImplementedError: If requested configuration is not yet implemented
         """
-        if model == CameraModel.IMX500:
+        if platform == Platform.RPI and model == CameraModel.IMX500:
             if with_detection:
+                from .imx500_detection import IMX500ObjectDetection
+                
                 return IMX500ObjectDetection(args=args, platform=platform, device=device)
             else:
+                from .imx500_camera import IMX500Camera
+                
                 return IMX500Camera(platform=platform, device=device)
 
         elif model == CameraModel.IMX477:
             # TODO: Implement IMX477 camera support
             raise NotImplementedError(f"IMX477 camera support not yet implemented")
 
-        elif model == CameraModel.IMX219:
-            # TODO: Implement IMX219 camera support
-            raise NotImplementedError(f"IMX219 camera support not yet implemented")
+        elif platform == Platform.JETSON and model == CameraModel.IMX219:
+            from .imx219_camera import IMX219Camera
+                
+            return IMX219Camera(platform=platform, device=device)
 
         else:
-            raise ValueError(f"Unsupported camera model: {model}")
+            raise ValueError(f"Unsupported camera model: {model} on platform: {platform}")
 
     @staticmethod
     def create_detection_camera(

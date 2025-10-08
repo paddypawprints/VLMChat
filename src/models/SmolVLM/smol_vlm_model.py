@@ -13,7 +13,9 @@ import onnxruntime
 import numpy as np
 import logging
 from typing import List, Dict, Any, Generator
-from transformers import AutoConfig, AutoProcessor, AutoModelForImageTextToText
+from transformers import AutoConfig
+from transformers import AutoProcessor, AutoModelForVision2Seq
+#from transformers import AutoModelForVision2Seq
 from PIL import Image
 from prompt.prompt import Prompt, History
 
@@ -83,17 +85,23 @@ class SmolVLMModel:
         Raises:
             Exception: If any component fails to load
         """
-        self._model = AutoModelForImageTextToText.from_pretrained(
-            self._config.model_path,
-            torch_dtype=torch.bfloat16
-        )
+        #self._model = AutoModelForImageTextToText.from_pretrained(
+        #    self._config.model_path,
+        #    torch_dtype=torch.bfloat16
+        #)
         self._model_config = AutoConfig.from_pretrained(self._config.model_path)
         self._processor = AutoProcessor.from_pretrained(self._config.model_path)
-        self._image_processor = self._processor.image_processor
-        self._tokenizer = self._processor.tokenizer
+        #self._image_processor = self._processor.image_processor
+        #self._tokenizer = self._processor.tokenizer
+
+        # Initialize processor and model
+        #self._processor = AutoProcessor.from_pretrained("HuggingFaceTB/SmolVLM-256M-Instruct")
+        #self._model = AutoModelForVision2Seq.from_pretrained(
+        #    "HuggingFaceTB/SmolVLM-256M-Instruct",
+        #    torch_dtype=torch.bfloat16)
 
         # Analyze and log special token information
-        self._analyze_special_tokens()
+        #self._analyze_special_tokens()
     
     def _load_onnx_sessions(self):
         """

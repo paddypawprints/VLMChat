@@ -14,7 +14,9 @@ from models.SmolVLM.smol_vlm_model import SmolVLMModel
 from models.SmolVLM.model_config import ModelConfig
 from utils.image_utils import load_image_from_url, load_image_from_file
 from prompt.prompt import Prompt,HistoryFormat
-from utils.camera import IMX500ObjectDetection
+#from utils.camera import IMX500ObjectDetection
+from utils.camera_factory import CameraFactory
+from utils.camera_base import BaseCamera, CameraModel, Platform
 
 from models.SmolVLM.response_generator import ResponseGenerator
 
@@ -86,7 +88,9 @@ class SmolVLMChatApplication:
         )
 
         # Initialize hardware interfaces
-        self._camera = IMX500ObjectDetection()
+        self._camera = CameraFactory.create_camera(model = CameraModel.IMX219,
+                                                   platform = Platform.JETSON,
+                                                   )
         
         logger.info("SmolVLM Chat Application initialized successfully")
 
@@ -106,7 +110,7 @@ class SmolVLMChatApplication:
         return self._prompt
 
     @property
-    def camera(self) -> IMX500ObjectDetection:
+    def camera(self) -> BaseCamera:
         """Get the camera interface."""
         return self._camera
 
@@ -304,6 +308,6 @@ class SmolVLMChatApplication:
             except KeyboardInterrupt:
                 print("\nGoodbye!")
                 break
-            except Exception as e:
-                logger.error(f"Error in chat loop: {e}")
-                print(f"An error occurred: {e}")
+            #except Exception as e:
+                #logger.error(f"Error in chat loop: {e}")
+                #print(f"An error occurred: {e}")
