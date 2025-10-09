@@ -1,0 +1,27 @@
+# constraints-jetson.txt
+# Constraint file for Jetson Orin Nano installs. This file intentionally leaves
+# torch and onnxruntime out because Jetson typically requires vendor/JetPack
+# matched wheels which must be installed manually.
+
+numpy==1.24.2
+Pillow==9.4.0
+requests==2.28.1
+pydantic==2.11.9
+PyYAML==6.0.2
+psutil
+
+# transformers is available via PyPI on Jetson
+transformers==4.56.1
+
+# Optional extras
+jetson-stats
+
+# Dev/test
+pytest==8.4.2
+pytest-xdist
+pytest-timeout
+pytest-benchmark
+
+# Placeholders for custom wheels (install manually using these example commands):
+# pip install https://developer.nvidia.com/path/to/torch-wheel-for-jetson.whl
+# pip install https://github.com/<owner>/<repo>/releases/download/<tag>/onnxruntime-jetson-aarch64.whl

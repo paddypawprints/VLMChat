@@ -1,0 +1,76 @@
+[project]
+name = "vlmchat"
+version = "0.0.0"
+description = "VLMChat — small visual-language model integration and utilities"
+readme = "README.md"
+# Support both Python 3.10 (Jetson Orin Nano workflows) and 3.11+ on other platforms
+requires-python = ">=3.10,<4"
+authors = [ { name = "paddypawprints" } ]
+license = { text = "MIT" }
+
+# Core runtime dependencies discovered from scanning the repository imports.
+
+# Keep core, lightweight runtime dependencies in the base install.
+dependencies = [
+    "numpy==1.24.2",
+    "Pillow==9.4.0",
+    "requests==2.28.1",
+    "pydantic==2.11.9",
+    "psutil",
+    "PyYAML==6.0.2",
+]
+
+# Heavy ML and platform-specific packages are provided as optional extras so
+# users on aarch64 devices (Raspberry Pi, Jetson) can choose the correct
+# wheel/build for their platform before installing the extras.
+
+# Optional groups for platform or developer specific needs.
+[project.optional-dependencies]
+# Development and testing tools
+dev = [
+    "pytest==8.4.2",
+    "pytest-xdist",
+    "pytest-timeout",
+    "pytest-benchmark",
+]
+
+
+# Vision/ML stack (install only after installing a matching `torch` wheel for
+# your platform). This groups transformers, torch, and onnxruntime as an extra
+# called `vision` so users can opt into heavy dependencies explicitly.
+vision = [
+    "transformers==4.56.1",
+    "torch==2.8.0+cpu",            # prefer installing platform-specific torch wheel first
+    "onnxruntime==1.22.1",
+]
+
+# Platform-specific extras for aarch64 Ubuntu targets. Use these to pull in
+# camera or helper packages appropriate for the target hardware.
+raspberrypi = [
+    "picamera2==0.3.31; sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+# Jetson-specific helpers (does not install PyTorch for you — follow NVIDIA
+# instructions to install the correct wheel for your Jetson device first).
+jetson = [
+    "jetson-stats",
+]
+
+# Optional ONNX runtime GPU variant (useful on systems with supported GPU / CUDA)
+onnx_gpu = [
+    "onnxruntime-gpu; sys_platform == 'linux'",
+]
+
+# Notes:
+# - `picamera2` is only required on Linux systems that have libcamera and the
+#   IMX500/IMX219 camera families; installing it on other platforms may fail.
+# - `torch` and `transformers` are heavyweight and may need platform-specific
+#   wheels (CUDA vs CPU); prefer installing `torch` from the official index
+#   or using a pinned wheel for your CUDA setup.
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -88,8 +88,9 @@ class SmolVLMChatApplication:
         )
 
         # Initialize hardware interfaces
-        self._camera = CameraFactory.create_camera(model = CameraModel.IMX219,
-                                                   platform = Platform.JETSON,
+        self._camera = CameraFactory.create_camera(model = CameraModel.IMX500,
+                                                   platform = Platform.RPI,
+                                                   with_detection = True
                                                    )
         
         logger.info("SmolVLM Chat Application initialized successfully")
