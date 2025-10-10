@@ -18,6 +18,10 @@ dependencies = [
     "pydantic==2.11.9",
     "psutil",
     "PyYAML==6.0.2",
+    "torch",
+    "transformers",
+    "pillow",
+    "requests",
 ]
 
 # Heavy ML and platform-specific packages are provided as optional extras so
@@ -68,9 +72,16 @@ onnx_gpu = [
 #   wheels (CUDA vs CPU); prefer installing `torch` from the official index
 #   or using a pinned wheel for your CUDA setup.
 
+ubuntu =[
+    "opencv-python"
+]
+
+
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
