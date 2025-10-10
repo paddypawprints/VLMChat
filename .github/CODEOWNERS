@@ -1,0 +1,13 @@
+# Assign ownership of all Python files to paddypawprints
+*.py @paddypawprints
+
+# Assign ownership of Ruff config and GitHub workflows
+pyproject.toml @paddypawprints
+.github/workflows/* @paddypawprints
+
+# Assign ownership of documentation files
+docs/** @paddypawprints
+
+# Assign ownership of project metadata
+README.md @paddypawprints
+LICENSE @paddypawprints
