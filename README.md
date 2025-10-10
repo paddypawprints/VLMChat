@@ -11,6 +11,7 @@ Key points
 - Configurable via files, environment variables, and command-line switches
 
 Contributing
+
 We welcome contributions from the community! This project follows a merit-based, open-governance model inspired by "The Apache Way." Our goal is to create a welcoming environment for collaboration.
 
 Before you get started, please review the following documents:
