@@ -10,6 +10,16 @@ Key points
 - Picamera2-based camera integration when run on compatible Linux hardware
 - Configurable via files, environment variables, and command-line switches
 
+Contributing
+We welcome contributions from the community! This project follows a merit-based, open-governance model inspired by "The Apache Way." Our goal is to create a welcoming environment for collaboration.
+
+Before you get started, please review the following documents:
+- [CONTRIBUTING.md](./CONTRIBUTING.md) Our main guide for contributors. It details the development workflow, coding standards, and how to submit a pull request.
+- [GOVERNANCE.md](./GOVERNANCE.md) Outlines our governance model, project roles, and the decision-making process.
+These documents describe standards we expect all community members to follow.
+
+All contributions require a signed [Contributor License Agreement](./CLA.md) (CLA), a standard practice for protecting both the contributor and the project. The process is automated via a bot on your first pull request.
+
 <!-- WARNING: Installation instructions are a work in progress and have not been fully tested across all target platforms. Use at your own risk and verify steps on your hardware. -->
 Installation (recommended)
 
