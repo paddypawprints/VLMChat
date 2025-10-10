@@ -3,8 +3,10 @@ name: Ruff Lint and Format Check
 on:
   push:
     branches: [ main, master ]
+      - '**/*.py'  # Trigger only when Python files change
   pull_request:
     branches: [ main, master ]
+      - '**/*.py'  # Trigger only when Python files change
 
 jobs:
   ruff_check:
