@@ -14,14 +14,19 @@ import numpy as np
 import logging
 from typing import List, Dict, Any, Generator
 from transformers import AutoConfig
-from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers import AutoProcessor
+from transformers import AutoModelForImageTextToText
+#from transformers.models.idefics3.image_processing_idefics3 import Idefics3ImageProcessor
 #from transformers import AutoModelForVision2Seq
+from transformers.image_utils import load_image
 from PIL import Image
 from prompt.prompt import Prompt, History
 
 from models.SmolVLM.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
+
+LOCAL_MODEL_PATH = "/home/patrick/smolvlm_local"
 
 class SmolVLMModel:
     """
@@ -85,17 +90,21 @@ class SmolVLMModel:
         Raises:
             Exception: If any component fails to load
         """
-        #self._model = AutoModelForImageTextToText.from_pretrained(
-        #    self._config.model_path,
-        #    torch_dtype=torch.bfloat16
-        #)
+        
+#        AutoProcessor.register("Idefics3ImageProcessor", Idefics3ImageProcessor)
+        
         self._model_config = AutoConfig.from_pretrained(self._config.model_path)
-        self._processor = AutoProcessor.from_pretrained(self._config.model_path)
-        #self._image_processor = self._processor.image_processor
-        #self._tokenizer = self._processor.tokenizer
+        self._processor = AutoProcessor.from_pretrained(self._config.model_path,)
+
+        self._model = AutoModelForImageTextToText.from_pretrained(
+            self._config.model_path,
+            torch_dtype=torch.bfloat16,
+            )
+
+        self._image_processor = self._processor.image_processor
+        self._tokenizer = self._processor.tokenizer
 
         # Initialize processor and model
-        #self._processor = AutoProcessor.from_pretrained("HuggingFaceTB/SmolVLM-256M-Instruct")
         #self._model = AutoModelForVision2Seq.from_pretrained(
         #    "HuggingFaceTB/SmolVLM-256M-Instruct",
         #    torch_dtype=torch.bfloat16)

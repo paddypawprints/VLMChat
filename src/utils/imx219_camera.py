@@ -64,3 +64,35 @@ def show_camera():
 
 if __name__ == "__main__":
     show_camera()
+
+import cv2
+from PIL import Image
+import numpy as np # Often used, but technically Image.fromarray handles it
+
+# --- Current (Non-PIL) Method ---
+# def capture_frame_old(cap):
+#     """Captures a frame and returns it as a NumPy array (OpenCV default)."""
+#     ret, frame = cap.read()
+#     if ret:
+#         return frame # This is a NumPy array
+#     return None
+# --------------------------------
+
+def capture_frame_as_pil_image(cap):
+    """
+    Captures a frame and converts it to a PIL Image.
+    'cap' is assumed to be an OpenCV VideoCapture object.
+    """
+    ret, frame = cap.read()
+    
+    if ret:
+        # 1. OpenCV reads frames in BGR format by default.
+        #    PIL/RGB requires RGB, so we convert the color space.
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # 2. Convert the NumPy array (frame_rgb) to a PIL Image object.
+        pil_image = Image.fromarray(frame_rgb)
+        
+        return pil_image
+    
+    return None
