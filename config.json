@@ -20,5 +20,6 @@
     "project_root": "None",
     "coco_labels_path": "assets/coco_labels.txt",
     "captured_images_dir": "captured_images"
-  }
+  },
+  "runtime_platform": null
 }

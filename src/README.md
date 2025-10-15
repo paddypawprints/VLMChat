@@ -161,3 +161,18 @@ The test runner supports many modes (unit/integration/performance) and integrate
 - Use the `dev` extras for running tests and linters locally.
 
 For details about the prompt module and test structure, see `src/tests/test_prompt/`.
+
+## Metrics
+
+This repository includes a lightweight metrics system at `src/utils/metrics_collector.py`.
+It provides:
+
+- TimeSeries registration (name + allowed attribute keys, optional bounds: max_count, ttl_seconds)
+- Collector which accepts datapoints and enforces attribute validation and eviction
+- Session which observes a Collector and holds Instruments
+- Instrument base class and several concrete instruments (Counter, Count, Average,
+  HistogramByAttribute, AverageDuration, Histogram, etc.)
+
+See `src/utils/README.md` for quick examples on registering timeseries, creating
+sessions/instruments, using the `DurationTimer` context manager, and exporting a
+session to JSON.

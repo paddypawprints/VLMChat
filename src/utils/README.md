@@ -192,3 +192,32 @@ else:
 - File system access for local images
 
 This utilities module provides the foundation for image handling and camera integration throughout the VLMChat application.
+
+## Metrics (quick reference)
+
+The repository includes a lightweight metrics system at `src/utils/metrics_collector.py`.
+It is useful for in-process telemetry and quick instrumenting of operations.
+
+Examples
+
+```py
+from src.utils.metrics_collector import Collector, Session, ValueType
+from src.utils.metrics_collector import CounterInstrument
+
+collector = Collector()
+collector.register_timeseries("requests", registered_attribute_keys=["route"], max_count=256)
+
+session = Session(collector)
+counter = CounterInstrument("reqs", binding_attributes={"route": "/home"})
+session.add_instrument(counter, "requests")
+
+collector.data_point("requests", {"route": "/home"}, 1)
+
+with collector.duration_timer("handler.latency", attributes={"route": "/home"}):
+    handle_request()
+
+path = session.export_to_json("/tmp/metrics")
+print("Wrote session export:", path)
+```
+
+See `tests/test_metrics_collector.py` and `tests/test_metrics_instruments.py` for more examples and behavior expectations.

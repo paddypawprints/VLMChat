@@ -10,7 +10,7 @@ with support for both standard transformers and ONNX execution.
 
 import logging
 import traceback
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from PIL import Image
 from prompt.prompt import Prompt
 
@@ -18,6 +18,7 @@ from models.SmolVLM.model_config import ModelConfig
 from models.SmolVLM.backend_base import BackendBase
 from models.SmolVLM.transformers_backend import TransformersBackend
 from models.SmolVLM.onnx_backend import OnnxBackend
+from utils.metrics_collector import Collector
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +30,37 @@ class SmolVLMModel:
     Both backends implement the same interface so behavior is consistent.
     """
 
-    def __init__(self, config: ModelConfig, use_onnx: bool = True):
+    def __init__(self, config: ModelConfig, use_onnx: bool = True, collector: Optional[Collector] = None):
         self._config = config
         self._use_onnx = use_onnx
+        # Optional metrics collector; models/backends may use this for telemetry
+        self.collector: Optional[Collector] = collector
 
-        # instantiate backends
-        self._transformers: BackendBase = TransformersBackend(config.model_path, config)
-        self._onnx: BackendBase = OnnxBackend(config)
-        if not self._onnx.is_available:
-            self._use_onnx = False
+        # instantiate the appropriate backend instance (only one)
+        self._backend: BackendBase = self._make_backend(self._use_onnx, config)
+
+    def _make_backend(self, use_onnx: bool, config: ModelConfig) -> BackendBase:
+        """Create and return a backend instance based on use_onnx flag.
+
+        If ONNX creation fails or reports not available, fall back to Transformers.
+        """
+        if use_onnx:
+            try:
+                ob = OnnxBackend(config)
+                if getattr(ob, "is_available", False):
+                    return ob
+                # fallthrough to transformers
+            except Exception:
+                logger.exception("Failed to create OnnxBackend; falling back to Transformers")
+
+        # create transformers backend as fallback/default
+        try:
+            tb = TransformersBackend(config.model_path, config)
+            return tb
+        except Exception:
+            logger.exception("Failed to create TransformersBackend")
+            # Re-raise to surface initialization error
+            raise
 
     @property
     def config(self) -> ModelConfig:
@@ -46,18 +69,6 @@ class SmolVLMModel:
     @property
     def use_onnx(self) -> bool:
         return self._use_onnx
-
-    def prepare_onnx_inputs(self, messages: List[Dict], images: List[Image.Image]):
-        return self._onnx.prepare_inputs(messages, images)
-
-    def prepare_transformers_inputs(self, messages: List[Dict], images: List[Image.Image]):
-        return self._transformers.prepare_inputs(messages, images)
-
-    def generate_onnx(self, inputs: Dict[str, Any], max_new_tokens: int = None):
-        return self._onnx.generate_stream(inputs, max_new_tokens=max_new_tokens)
-
-    def generate_transformers(self, inputs: Dict[str, Any], max_new_tokens: int = None) -> str:
-        return self._transformers.generate(inputs, max_new_tokens=max_new_tokens)
 
     def generate_response(self,
                           messages: List[Dict[str, Any]],
@@ -83,16 +94,13 @@ class SmolVLMModel:
         # Prepare model inputs from messages and images
 
         try:
-            # Choose generation method based on model configuration
-            if self._use_onnx and stream_output:
-                inputs = self.prepare_onnx_inputs(messages, images)
-                return self._generate_streaming_onnx(inputs)
-            elif self._use_onnx:
-                inputs = self.prepare_onnx_inputs(messages, images)
-                return self._generate_streaming_onnx(inputs)
+            # Prepare inputs and choose streaming or non-streaming generation
+            inputs = self._backend.prepare_inputs(messages, images)
+            if stream_output:
+                # prefer streaming generator when requested
+                return ''.join([token for token in self._backend.generate_stream(inputs)])
             else:
-                inputs = self.prepare_transformers_inputs(messages, images)
-                return self.generate_transformers(inputs)
+                return self._backend.generate(inputs)
 
         except Exception as e:
             logger.error(f"Error during generation: {e}")
@@ -109,21 +117,32 @@ class SmolVLMModel:
         if b not in ('onnx', 'transformers', 'auto'):
             raise ValueError("backend must be one of: 'onnx', 'transformers', 'auto'")
 
+        # Recreate backend according to requested selection
         if b == 'onnx':
-            if getattr(self._onnx, 'is_available', False):
+            # attempt to create OnnxBackend and verify availability
+            backend_candidate = self._make_backend(True, self._config)
+            if getattr(backend_candidate, 'is_available', False):
                 self._use_onnx = True
+                self._backend = backend_candidate
             else:
                 raise RuntimeError('ONNX backend not available')
         elif b == 'transformers':
             self._use_onnx = False
+            self._backend = self._make_backend(False, self._config)
         else:  # auto
-            self._use_onnx = getattr(self._onnx, 'is_available', False)
+            backend_candidate = self._make_backend(True, self._config)
+            if getattr(backend_candidate, 'is_available', False):
+                self._use_onnx = True
+                self._backend = backend_candidate
+            else:
+                self._use_onnx = False
+                self._backend = self._make_backend(False, self._config)
 
         logger.info(f"SmolVLMModel backend set to: {'onnx' if self._use_onnx else 'transformers'}")
 
     def current_backend(self) -> str:
         """Return the currently selected backend as a string."""
-        return 'onnx' if self._use_onnx else 'transformers'
+        return 'onnx' if getattr(self._backend, 'is_available', False) and self._use_onnx else 'transformers'
     
     def _generate_streaming_onnx(self, inputs: Dict[str, Any]) -> str:
         """
@@ -138,11 +157,11 @@ class SmolVLMModel:
         Returns:
             str: Complete generated response text
         """
+        # Legacy helper retained for API compatibility: delegate to backend
         response_tokens = []
-        # Stream tokens from ONNX model and collect them
-        for token_text in self.generate_onnx(inputs):
+        for token_text in self._backend.generate_stream(inputs):
             response_tokens.append(token_text)
-        response_tokens.append('\n')  # Add final newline
+        response_tokens.append('\n')
         return ''.join(response_tokens)
     
     def get_messages(self, prompt: Prompt) -> List[Dict[str, Any]]:

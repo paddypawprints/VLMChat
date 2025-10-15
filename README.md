@@ -115,6 +115,61 @@ python3 src/main.py
 python3 src/main.py --onnx-info
 ```
 
+## Metrics
+
+This repository includes a small, self-contained metrics system located at
+`src/utils/metrics_collector.py`. It's intentionally lightweight and meant for
+low-dependency in-process metrics collection (timeseries, bounded retention,
+and simple instruments). Use it for local telemetry or to prototype metrics
+before exporting to a dedicated backend.
+
+Quick examples
+
+- Register a time series (allowed attribute keys, optional bounds):
+
+```py
+from src.utils.metrics_collector import Collector
+
+collector = Collector()
+collector.register_timeseries("requests", registered_attribute_keys=["route"], max_count=256, ttl_seconds=600)
+```
+
+- Create a session and attach instruments:
+
+```py
+from src.utils.metrics_collector import Session, CounterInstrument
+
+session = Session(collector)
+counter = CounterInstrument("requests_counter", binding_attributes={"route": "/home"})
+session.add_instrument(counter, "requests")
+```
+
+- Record datapoints:
+
+```py
+from src.utils.metrics_collector import ValueType
+
+collector.add_datapoint("requests", ValueType.INT, 1, attributes={"route": "/home"})
+# or convenience helper
+collector.data_point("requests", {"route": "/home"}, 1)
+```
+
+- Time an operation with a context manager (records milliseconds):
+
+```py
+with collector.duration_timer("operation.duration", attributes={"route": "/home"}):
+	do_work()
+```
+
+- Export a session to JSON:
+
+```py
+path = session.export_to_json("/tmp/metrics")
+print("Wrote session export to", path)
+```
+
+For full usage, see `src/utils/metrics_collector.py` and the tests in `tests/`.
+
 Running tests
 
 The repository includes a test runner and pytest-based tests. After installing the `dev` extras:

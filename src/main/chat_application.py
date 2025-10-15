@@ -68,21 +68,34 @@ class SmolVLMChatApplication:
             max_pairs = config.conversation.max_pairs
         if max_images is None:
             max_images = config.conversation.max_images
-        if history_format is None:
-            # Convert string to enum
-            from prompt.history_format import HistoryFormat as ConfigHistoryFormat
-            history_format = ConfigHistoryFormat(config.conversation.history_format.value)
+            if history_format is None:
+                # Convert string to enum
+                from prompt.history_format import HistoryFormat as ConfigHistoryFormat
+                history_format = ConfigHistoryFormat(config.conversation.history_format.value)
 
-        # Initialize core model components
-        self._config = ModelConfig(model_path=model_path)
-        self._model = SmolVLMModel(self._config, use_onnx=use_onnx)
+            # Initialize core model components
+            self._config = ModelConfig(model_path=model_path)
+            # Create a metrics collector and pass it into the model for telemetry
+            from utils.metrics_collector import Collector
+            self._collector = Collector()
+            self._model = SmolVLMModel(self._config, use_onnx=use_onnx, collector=self._collector)
 
-        # Initialize conversation management
-        self._prompt = Prompt(
-            max_pairs=max_pairs,
-            max_images=max_images,
-            history_format=history_format
-        )
+            # Create an application-level session and a model-level session
+            self._app_session = self._collector and self._collector and None
+            try:
+                from utils.metrics_collector import Session
+                self._app_session = Session(self._collector)
+                # create a separate session for model-internal metrics
+                self._model.session = Session(self._collector)
+            except Exception:
+                logger.exception("Failed to create metrics sessions")
+
+            # Initialize conversation management
+            self._prompt = Prompt(
+                max_pairs=max_pairs,
+                max_images=max_images,
+                history_format=history_format
+            )
 
         # Initialize hardware interfaces
         # Resolve platform from loaded configuration (prefer explicit runtime_platform)
