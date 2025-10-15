@@ -68,9 +68,6 @@ else:
 ```python
 from models.SmolVLM.response_generator import ResponseGenerator
 
-# Initialize generator
-generator = ResponseGenerator(model)
-
 # Generate with streaming
 response = generator.generate_response(
     messages=messages,

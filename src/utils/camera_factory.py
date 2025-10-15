@@ -8,6 +8,25 @@ based on model, platform, and device specifications.
 from typing import Union
 
 from .camera_base import BaseCamera, CameraModel, Platform, Device
+from config import get_config
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Per-platform default camera choices. Consumers can call
+# CameraFactory.get_default_camera_for_platform(...) to inspect this mapping.
+DEFAULT_CAMERA_BY_PLATFORM = {
+    Platform.RPI: {
+        "model": CameraModel.IMX500,
+        "device": Device.CAMERA0,
+        "with_detection": True,
+    },
+    Platform.JETSON: {
+        "model": CameraModel.IMX219,
+        "device": Device.CAMERA0,
+        "with_detection": False,
+    },
+}
 from .detection_base import ObjectDetectionInterface
 
 
@@ -21,11 +40,11 @@ class CameraFactory:
 
     @staticmethod
     def create_camera(
-        model: CameraModel,
-        platform: Platform = Platform.RPI,
-        device: Device = Device.CAMERA0,
-        with_detection: bool = False,
-        args=None
+        model: CameraModel | None = None,
+        platform: Platform | None = None,
+        device: Device | None = None,
+        with_detection: bool | None = None,
+        args=None,
     ) -> BaseCamera:
         """
         Create a camera instance based on specifications.
@@ -44,14 +63,36 @@ class CameraFactory:
             ValueError: If unsupported model/platform combination is requested
             NotImplementedError: If requested configuration is not yet implemented
         """
+        # If platform isn't provided, use runtime detected platform from config
+        if platform is None:
+            cfg = get_config()
+            detected = cfg.get_runtime_platform()
+            platform = detected or Platform.RPI
+        logger.debug(f"CameraFactory: runtime platform resolved to {platform}")
+
+        # If model/device/with_detection are not provided, pick sensible defaults
+        defaults = DEFAULT_CAMERA_BY_PLATFORM.get(platform, {})
+        if model is None:
+            model = defaults.get("model")
+            logger.debug(f"CameraFactory: model not provided, using default {model} for platform {platform}")
+        if device is None:
+            device = defaults.get("device", Device.CAMERA0)
+            logger.debug(f"CameraFactory: device not provided, using default {device} for platform {platform}")
+        if with_detection is None:
+            with_detection = defaults.get("with_detection", False)
+            logger.debug(f"CameraFactory: with_detection not provided, using default {with_detection} for platform {platform}")
+
+        # Now dispatch based on resolved values
         if platform == Platform.RPI and model == CameraModel.IMX500:
             if with_detection:
+                logger.info(f"CameraFactory: creating IMX500 with detection on {platform} (device={device})")
                 from .imx500_detection import IMX500ObjectDetection
-                
+
                 return IMX500ObjectDetection(args=args, platform=platform, device=device)
             else:
+                logger.info(f"CameraFactory: creating IMX500 camera on {platform} (device={device})")
                 from .imx500_camera import IMX500Camera
-                
+
                 return IMX500Camera(platform=platform, device=device)
 
         elif model == CameraModel.IMX477:
@@ -59,6 +100,7 @@ class CameraFactory:
             raise NotImplementedError(f"IMX477 camera support not yet implemented")
 
         elif platform == Platform.JETSON and model == CameraModel.IMX219:
+            logger.info(f"CameraFactory: creating IMX219 camera on {platform} (device={device})")
             from .imx219_camera import IMX219Camera
                 
             return IMX219Camera(platform=platform, device=device)
@@ -69,7 +111,7 @@ class CameraFactory:
     @staticmethod
     def create_detection_camera(
         model: CameraModel,
-        platform: Platform = Platform.RPI,
+        platform: Platform | None = None,
         device: Device = Device.CAMERA0,
         args=None
     ) -> Union[BaseCamera, ObjectDetectionInterface]:
@@ -110,6 +152,11 @@ class CameraFactory:
             List of supported CameraModel enums
         """
         return [CameraModel.IMX500]  # TODO: Add IMX477, IMX219 when implemented
+
+    @staticmethod
+    def get_default_camera_for_platform(platform: Platform) -> dict:
+        """Return the default camera mapping for the given platform."""
+        return DEFAULT_CAMERA_BY_PLATFORM.get(platform, {}).copy()
 
     @staticmethod
     def supports_detection(model: CameraModel) -> bool:

@@ -18,8 +18,6 @@ from prompt.prompt import Prompt,HistoryFormat
 from utils.camera_factory import CameraFactory
 from utils.camera_base import BaseCamera, CameraModel, Platform
 
-from models.SmolVLM.response_generator import ResponseGenerator
-
 logger = logging.getLogger(__name__)
 
 class SmolVLMChatApplication:
@@ -78,7 +76,6 @@ class SmolVLMChatApplication:
         # Initialize core model components
         self._config = ModelConfig(model_path=model_path)
         self._model = SmolVLMModel(self._config, use_onnx=use_onnx)
-        self._response_generator = ResponseGenerator(self._model)
 
         # Initialize conversation management
         self._prompt = Prompt(
@@ -88,10 +85,28 @@ class SmolVLMChatApplication:
         )
 
         # Initialize hardware interfaces
-        self._camera = CameraFactory.create_camera(model = CameraModel.IMX219,
-                                                   platform = Platform.JETSON,
-                                                   with_detection = False
-                                                   )
+        # Resolve platform from loaded configuration (prefer explicit runtime_platform)
+        detected_platform = None
+        try:
+            detected_platform = config.get_runtime_platform()
+        except Exception:
+            detected_platform = None
+
+        # If detection returned None, fall back to Platform.RPI
+        resolved_platform = detected_platform or Platform.RPI
+
+        logger.info(f"Using platform for camera creation: {resolved_platform}")
+
+        # Create camera for the resolved platform. Do not pass a model so the
+        # CameraFactory will select the platform-appropriate default unless an
+        # explicit override is provided elsewhere.
+        default_map = CameraFactory.get_default_camera_for_platform(resolved_platform)
+        logger.info(f"CameraFactory default for {resolved_platform}: {default_map}")
+
+        self._camera = CameraFactory.create_camera(
+            platform=resolved_platform,
+            # with_detection left unspecified so factory uses its default
+        )
         
         logger.info("SmolVLM Chat Application initialized successfully")
 
@@ -176,7 +191,7 @@ class SmolVLMChatApplication:
 
         # Generate response using the model
         try:
-            response = self._response_generator.generate_response(
+            response = self._model.generate_response(
                 messages=messages,
                 images=[self._prompt.current_image],
                 stream_output=stream_output
@@ -300,6 +315,19 @@ class SmolVLMChatApplication:
                         print("Image captured and ready for use in conversation")
                     else:
                         print("Failed to capture image")
+                    continue
+                elif user_input.startswith('/backend'):
+                    # Show or change the model backend
+                    parts = user_input.split()
+                    if len(parts) == 1:
+                        print(f"Current backend: {self._model.current_backend()}")
+                    else:
+                        new_backend = parts[1].strip().lower()
+                        try:
+                            self._model.set_backend(new_backend)
+                            print(f"Backend switched to: {self._model.current_backend()}")
+                        except Exception as e:
+                            print(f"Failed to switch backend: {e}")
                     continue
 
                 # Process regular query (not a command)

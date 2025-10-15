@@ -12,6 +12,7 @@ import os
 import argparse
 from pathlib import Path
 import logging
+import traceback
 
 # Ensure we're using the correct Python path for local imports
 PROJECT_ROOT = Path(__file__).parent.absolute()
@@ -134,6 +135,17 @@ def main():
         logging.info(f"Max conversation pairs: {config.conversation.max_pairs}")
         logging.info(f"History format: {config.conversation.history_format}")
         logging.info(f"ONNX enabled: {config.model.use_onnx}")
+        # Determine runtime platform: prefer explicit config value, else auto-detect
+        try:
+            if config.runtime_platform:
+                logging.info(f"Runtime platform specified in config: {config.runtime_platform}")
+            else:
+                from utils.platform_detect import detect_platform
+                detected = detect_platform()
+                config.runtime_platform = detected.value
+                logging.info(f"Detected runtime platform: {config.runtime_platform}")
+        except Exception as e:
+            logging.warning(f"Failed to determine runtime platform: {e}")
 
         # Initialize chat application (it will use the global configuration)
         app = SmolVLMChatApplication()

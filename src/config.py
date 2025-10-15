@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, validator, ConfigDict
 from enum import Enum
+from pathlib import Path as _Path
+from typing import Optional as _Optional
+from utils.camera_base import Platform as _Platform
 
 
 class HistoryFormat(str, Enum):
@@ -187,6 +190,32 @@ class VLMChatConfig(BaseModel):
     conversation: ConversationConfig = Field(default_factory=ConversationConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
+    # runtime platform detected at startup (not loaded from file)
+    runtime_platform: Optional[str] = Field(
+        default=None,
+        description="Detected runtime platform (rpi, jetson)"
+    )
+
+    def get_runtime_platform(self) -> _Optional[_Platform]:
+        """Return the runtime platform as a `Platform` enum if set/recognizable.
+
+        This helper converts the stored string value into the `Platform` enum
+        and accepts common synonyms (e.g., 'raspberry', 'rpi', 'jetson').
+        Returns None when no valid platform is available.
+        """
+        val = self.runtime_platform
+        if not val:
+            return None
+        val = str(val).strip().lower()
+        if val in ("rpi", "raspberry", "raspberrypi"):
+            return _Platform.RPI
+        if val in ("jetson", "nvidia"):
+            return _Platform.JETSON
+        # try direct enum lookup
+        try:
+            return _Platform(val)
+        except Exception:
+            return None
 
     @classmethod
     def load_from_file(cls, config_path: str) -> 'VLMChatConfig':
@@ -287,6 +316,11 @@ class VLMChatConfig(BaseModel):
             paths_dict["captured_images_dir"] = os.environ[f"{prefix}CAPTURED_IMAGES_DIR"]
         if paths_dict:
             config_dict["paths"] = paths_dict
+
+        # Allow runtime platform override from environment
+        if f"{prefix}RUNTIME_PLATFORM" in os.environ:
+            if "runtime_platform" not in config_dict:
+                config_dict.setdefault("runtime_platform", os.environ[f"{prefix}RUNTIME_PLATFORM"]) 
 
         return cls(**config_dict)
 
