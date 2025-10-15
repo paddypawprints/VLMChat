@@ -145,6 +145,7 @@ def main():
         # Log and display any startup errors
         logging.error(f"Application error: {e}")
         print(f"Failed to start application: {e}")
+        traceback.print_exc()
         sys.exit(1)
 
 

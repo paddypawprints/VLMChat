@@ -1,17 +1,9 @@
-# MIT License
-# Copyright (c) 2019 JetsonHacks
-# See license
-# Using a CSI camera (such as the Raspberry Pi Version 2) connected to a
-# NVIDIA Jetson Nano Developer Kit using OpenCV
-# Drivers for the camera and OpenCV are included in the base image
-
+from .camera_base import BaseCamera, CameraModel, Platform, Device
 import cv2
-
-# gstreamer_pipeline returns a GStreamer pipeline for capturing from the CSI camera
-# Defaults to 1280x720 @ 60fps
-# Flip the image by setting the flip_method (most common values: 0 and 2)
-# display_width and display_height determine the size of the window on the screen
-
+from PIL import Image
+import numpy as np
+import os
+import datetime
 
 def gstreamer_pipeline(
     capture_width=1920,
@@ -19,80 +11,96 @@ def gstreamer_pipeline(
     display_width=1920,
     display_height=1080,
     framerate=30,
-    flip_method=0,
+    flip_method=2,
 ):
     return (
-        "nvarguscamerasrc ! "
-        "video/x-raw(memory:NVMM), "
-        "width=(int)%d, height=(int)%d, "
-        "format=(string)NV12, framerate=(fraction)%d/1 ! "
-        "nvvidconv flip-method=%d ! "
-        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
-        "videoconvert ! "
-        "video/x-raw, format=(string)BGR ! appsink"
-        % (
-            capture_width,
-            capture_height,
-            framerate,
-            flip_method,
-            display_width,
-            display_height,
-        )
+    "nvarguscamerasrc ! "
+    "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, format=(string)NV12, framerate=(fraction)%d/1 ! "
+    "nvvidconv flip-method=%d ! "
+    "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+    "videoconvert ! "
+    "video/x-raw, format=(string)BGR ! appsink"
+    % (
+        capture_width,
+        capture_height,
+        framerate,
+        flip_method,
+        display_width,
+        display_height,
     )
+)
 
+class IMX219Camera(BaseCamera):
+    """Camera subclass for IMX219 on Jetson."""
 
-def show_camera():
-    # To flip the image, modify the flip_method parameter (0 and 2 are the most common)
-    print(gstreamer_pipeline(flip_method=0))
-    cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=2), cv2.CAP_GSTREAMER)
-    if cap.isOpened():
-        window_handle = cv2.namedWindow("CSI Camera", cv2.WINDOW_AUTOSIZE)
-        # Window
-        while cv2.getWindowProperty("CSI Camera", 0) >= 0:
-            ret_val, img = cap.read()
-            cv2.imshow("CSI Camera", img)
-            # This also acts as
-            keyCode = cv2.waitKey(30) & 0xFF
-            # Stop the program on the ESC key
-            if keyCode == 27:
-                break
-        cap.release()
-        cv2.destroyAllWindows()
-    else:
-        print("Unable to open camera")
+    def __init__(
+        self,
+        model: CameraModel = CameraModel.IMX219,
+        platform: Platform = Platform.JETSON,
+        device: Device = Device.CAMERA0,
+        capture_width=1920,
+        capture_height=1080,
+        display_width=1920,
+        display_height=1080,
+        framerate=30,
+        flip_method=2,
+        save_dir="./captures"
+    ):
+        super().__init__(model, platform, device)
+        self.capture_width = capture_width
+        self.capture_height = capture_height
+        self.display_width = display_width
+        self.display_height = display_height
+        self.framerate = framerate
+        self.flip_method = flip_method
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+        self._cap = cv2.VideoCapture(
+            gstreamer_pipeline(
+                capture_width=self.capture_width,
+                capture_height=self.capture_height,
+                display_width=self.display_width,
+                display_height=self.display_height,
+                framerate=self.framerate,
+                flip_method=self.flip_method,
+            ),
+            cv2.CAP_GSTREAMER,
+        )
+        if not self._cap.isOpened():
+            raise RuntimeError("Unable to open IMX219 camera")
 
+    def capture_single_image(self) -> tuple[str, Image.Image]:
+        """
+        Capture a single image from the camera.
 
-if __name__ == "__main__":
-    show_camera()
+        Returns:
+            Tuple[str, Image.Image]: File path and PIL Image object
+        """
+        ret, frame = self._cap.read()
+        if not ret:
+            raise RuntimeError("Failed to capture image from IMX219 camera")
 
-import cv2
-from PIL import Image
-import numpy as np # Often used, but technically Image.fromarray handles it
-
-# --- Current (Non-PIL) Method ---
-# def capture_frame_old(cap):
-#     """Captures a frame and returns it as a NumPy array (OpenCV default)."""
-#     ret, frame = cap.read()
-#     if ret:
-#         return frame # This is a NumPy array
-#     return None
-# --------------------------------
-
-def capture_frame_as_pil_image(cap):
-    """
-    Captures a frame and converts it to a PIL Image.
-    'cap' is assumed to be an OpenCV VideoCapture object.
-    """
-    ret, frame = cap.read()
-    
-    if ret:
-        # 1. OpenCV reads frames in BGR format by default.
-        #    PIL/RGB requires RGB, so we convert the color space.
+        # Convert to RGB for PIL
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # 2. Convert the NumPy array (frame_rgb) to a PIL Image object.
         pil_image = Image.fromarray(frame_rgb)
-        
-        return pil_image
-    
-    return None
+
+        # Save image with timestamp and device info
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{self.device.value}_{timestamp}.jpg"
+        filepath = os.path.join(self.save_path, filename)
+        pil_image.save(filepath)
+
+        return (filepath, pil_image)
+
+    @property
+    def save_path(self) -> str:
+        """Get the directory path for saving captured images."""
+        return self.save_dir
+
+    def __del__(self):
+        # Clean up camera resource on deletion
+        if hasattr(self, '_cap') and self._cap.isOpened():
+            self._cap.release()
+
+
+

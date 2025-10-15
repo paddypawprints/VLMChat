@@ -138,9 +138,17 @@ class SmolVLMModel:
             onnx_files = get_onnx_file_paths(onnx_model_path)
 
             # Load ONNX sessions
-            self._vision_session = onnxruntime.InferenceSession(str(onnx_files["vision_encoder"]))
+            self._vision_session = onnxruntime.InferenceSession(str(onnx_files["vision_encoder"]), providers=[
+                "TensorrtExecutionProvider", 
+                "CUDAExecutionProvider", 
+                "CPUExecutionProvider" ]
+            )
             self._embed_session = onnxruntime.InferenceSession(str(onnx_files["embed_tokens"]))
-            self._decoder_session = onnxruntime.InferenceSession(str(onnx_files["decoder"]))
+            self._decoder_session = onnxruntime.InferenceSession(str(onnx_files["decoder"]), providers=[
+                "TensorrtExecutionProvider", 
+                "CUDAExecutionProvider", 
+                "CPUExecutionProvider" ]
+            )
 
             logger.info(f"ONNX sessions loaded successfully from: {onnx_model_path}")
 
