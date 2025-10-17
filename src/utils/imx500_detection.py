@@ -136,7 +136,12 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
                             help="Path to custom labels file")
         parser.add_argument("--print-intrinsics", action="store_true",
                             help="Print model intrinsics and exit")
-        return parser.parse_args()
+        # Use parse_known_args so that when this code is invoked from a
+        # larger application (like src/main.py) it doesn't attempt to
+        # consume or error on unrelated command-line arguments such as
+        # --config. Return only the known args Namespace.
+        known, _ = parser.parse_known_args()
+        return known
 
     @property
     def args(self):

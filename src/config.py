@@ -139,11 +139,18 @@ class LoggingConfig(BaseModel):
             raise ValueError("Log format cannot be empty")
         # Test format string validity
         try:
+            # Use logging.Formatter to validate the format. Formatter will
+            # populate fields like asctime when formatting a record, so this
+            # correctly accepts common logging format strings such as
+            # '%(asctime)s - %(levelname)s - %(message)s'.
             test_record = logging.LogRecord(
                 name="test", level=logging.INFO, pathname="", lineno=0,
                 msg="test", args=(), exc_info=None
             )
-            v % test_record.__dict__
+            fmt = logging.Formatter(v)
+            # Formatter.format may mutate the record but that's fine for a
+            # validation check; any exception indicates an invalid format.
+            fmt.format(test_record)
         except (KeyError, ValueError, TypeError) as e:
             raise ValueError(f"Invalid log format string: {e}")
         return v.strip()

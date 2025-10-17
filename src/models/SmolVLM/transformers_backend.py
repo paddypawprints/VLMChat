@@ -45,13 +45,17 @@ class TransformersBackend(RuntimeBase):
         return self._available
 
     def prepare_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, Any]:
-        inputs = self._processor.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-        ).to(self._model.device, dtype=torch.bfloat16)
+#        inputs = self._processor.apply_chat_template(
+#            messages,
+#            add_generation_prompt=True,
+#            tokenize=True,
+#            return_dict=True,
+#            return_tensors="pt",
+#        ).to(self._model.device, dtype=torch.bfloat16)
+        if self._processor is None:
+            raise RuntimeError("Transformers backend requires a processor for input preparation")
+        prompt = self._processor.apply_chat_template(messages, add_generation_prompt=True)
+        inputs = self._processor(text=prompt, images=images, return_tensors="pt")
         return inputs
 
     def generate(self, inputs: Dict[str, Any], max_new_tokens: int | None = None) -> str:

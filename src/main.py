@@ -29,6 +29,31 @@ from main.console_io import run_interactive_chat
 from config import load_config, create_default_config_file, get_config
 
 
+def resolve_config_candidate(config_arg: str | None) -> str | None:
+    """Resolve which configuration file to use.
+
+    Preference order when a config path is provided or omitted:
+      1. If config_arg is provided, look for it relative to PROJECT_ROOT (src/),
+         then REPO_ROOT, then as a literal path.
+      2. If config_arg is None, attempt to find 'config.json' under
+         PROJECT_ROOT, then REPO_ROOT. Return None if no file is found.
+    Returns the selected path as a string or None.
+    """
+    from pathlib import Path
+    if config_arg:
+        candidates = [PROJECT_ROOT / config_arg, REPO_ROOT / config_arg, Path(config_arg)]
+    else:
+        candidates = [PROJECT_ROOT / "config.json", REPO_ROOT / "config.json"]
+
+    for p in candidates:
+        try:
+            if p.exists():
+                return str(p)
+        except Exception:
+            continue
+    return None
+
+
 def parse_arguments():
     """
     Parse command-line arguments.
@@ -122,8 +147,28 @@ def main():
     try:
         # Load configuration from file or environment variables
         if args.config:
-            config = load_config(args.config)
-            print(f"Loaded configuration from: {args.config}")
+            # Resolve config path preferentially relative to PROJECT_ROOT (src/),
+            # then the repository root, then the literal provided path. This lets
+            # users pass a simple 'config.json' while keeping a canonical
+            # `src/config.json` as the authoritative source for development.
+            from pathlib import Path
+            candidates = [PROJECT_ROOT / args.config, REPO_ROOT / args.config, Path(args.config)]
+            chosen = None
+            for p in candidates:
+                try:
+                    if p.exists():
+                        chosen = str(p)
+                        break
+                except Exception:
+                    # ignore permission or other path-related errors and try next
+                    continue
+            if chosen is None:
+                # Fall back to attempting to load the literal value; let
+                # load_config raise a helpful error if it doesn't exist.
+                chosen = args.config
+
+            config = load_config(chosen)
+            print(f"Loaded configuration from: {chosen}")
         else:
             # Try to load from environment variables or use defaults
             config = load_config()
