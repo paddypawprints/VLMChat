@@ -53,9 +53,9 @@ class OnnxBackend(RuntimeBase):
             onnx_model_path = global_config.model.get_onnx_model_path()
             onnx_files = get_onnx_file_paths(onnx_model_path)
 
-            self._vision_session = onnxruntime.InferenceSession(str(onnx_files["vision_encoder"]))
-            self._embed_session = onnxruntime.InferenceSession(str(onnx_files["embed_tokens"]))
-            self._decoder_session = onnxruntime.InferenceSession(str(onnx_files["decoder"]))
+            self._vision_session = onnxruntime.InferenceSession(str(onnx_files["vision_encoder"]), providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'])
+            self._embed_session = onnxruntime.InferenceSession(str(onnx_files["embed_tokens"]), providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'])
+            self._decoder_session = onnxruntime.InferenceSession(str(onnx_files["decoder"]), providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'])
 
             if self._hf_config is not None:
                 text_config = self._hf_config.text_config
