@@ -140,7 +140,7 @@ collector.register_timeseries("requests", registered_attribute_keys=["route"], m
 from src.utils.metrics_collector import Session, CounterInstrument
 
 session = Session(collector)
-counter = CounterInstrument("requests_counter", binding_attributes={"route": "/home"})
+counter = CounterInstrument("requests_counter", binding_keys=["route"])
 session.add_instrument(counter, "requests")
 ```
 
@@ -169,6 +169,36 @@ print("Wrote session export to", path)
 ```
 
 For full usage, see `src/utils/metrics_collector.py` and the tests in `tests/`.
+
+### System Metrics Sampler
+
+This project includes a lightweight background system metrics sampler located at `src/utils/system_metrics.py`.
+
+Features:
+- Samples CPU usage for all cores at a configurable interval (minimum 1 second).
+- Samples virtual memory usage (percent).
+- Optionally queries GPU metrics via platform-specific adapters (Jetson via `pynvml`) when available.
+- Writes metrics into the project's in-process `Collector` instance as timeseries:
+	- `system.cpu` attributes: `core` (string index)
+	- `system.memory` attributes: `type` (e.g., `virtual`)
+	- `system.gpu.*` per-metric timeseries when GPU metrics detected (`system.gpu.util`, `system.gpu.mem_used`, `system.gpu.mem_total`)
+
+Usage example:
+
+```py
+from src.utils.metrics_collector import Collector
+from src.utils.system_metrics import SystemMetricsSampler
+
+collector = Collector()
+sampler = SystemMetricsSampler.get_instance(collector, sample_duration=5.0)
+sampler.start()
+# ... later
+sampler.stop()
+```
+
+Notes:
+- The sampler uses `psutil` for CPU and memory metrics and `pynvml` to query NVIDIA devices when available. These dependencies were added to `requirements.txt` as optional platform packages.
+- If a `null_collector()` or `None` is passed to `get_instance()`, the sampler is a no-op and will not create a background thread.
 
 Running tests
 

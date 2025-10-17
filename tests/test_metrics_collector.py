@@ -22,7 +22,7 @@ def test_counter_and_export(tmp_path):
     c.register_timeseries("requests", registered_attribute_keys=["route"], max_count=10)
 
     sess = Session(c)
-    counter = CounterInstrument("requests_counter", binding_attributes={"route": "/home"})
+    counter = CounterInstrument("requests_counter", binding_keys=["route"])
     sess.add_instrument(counter, "requests")
 
     # add datapoints matching the binding
@@ -46,7 +46,7 @@ def test_eviction_and_removal_notifications():
     c.register_timeseries("latency", registered_attribute_keys=["route"], max_count=2)
 
     sess = Session(c)
-    hist = HistogramInstrument("latency_hist", binding_attributes={"route": "/api"})
+    hist = HistogramInstrument("latency_hist", binding_keys=["route"])
     sess.add_instrument(hist, "latency")
 
     # add three values: 10, 20, 30

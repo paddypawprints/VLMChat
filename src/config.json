@@ -1,6 +1,6 @@
 {
   "model": {
-    "model_path": "HuggingFaceTB/SmolVLM2-256M-Instruct",
+    "model_path": "HuggingFaceTB/SmolVLM2-500M-Instruct",
     "max_new_tokens": 1024,
     "eos_token_id": 198,
     "use_onnx": true,
@@ -19,6 +19,6 @@
   "paths": {
     "project_root": "None",
     "coco_labels_path": "assets/coco_labels.txt",
-    "captured_images_dir": "captured_images"
+    "captured_images_dir": "~/captured_images"
   }
 }

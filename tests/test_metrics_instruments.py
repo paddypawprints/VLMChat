@@ -21,7 +21,7 @@ def test_count_instrument_basic():
     c.register_timeseries("events", registered_attribute_keys=["type"], max_count=10)
 
     s = Session(c)
-    inst = CountInstrument("event_count", binding_attributes={"type": "click"})
+    inst = CountInstrument("event_count", binding_keys=["type"])
     s.add_instrument(inst, "events")
 
     c.add_datapoint("events", ValueType.INT, 1, attributes={"type": "click"})
@@ -36,7 +36,7 @@ def test_average_instrument_basic():
     c.register_timeseries("values", registered_attribute_keys=["k"], max_count=10)
 
     s = Session(c)
-    inst = AverageInstrument("avgval", binding_attributes={"k": "x"})
+    inst = AverageInstrument("avgval", binding_keys=["k"])
     s.add_instrument(inst, "values")
 
     c.add_datapoint("values", ValueType.FLOAT, 10.0, attributes={"k": "x"})

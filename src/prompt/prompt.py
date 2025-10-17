@@ -9,8 +9,8 @@ class to provide a unified interface for prompt-related operations.
 from typing import Dict, Any, Optional
 from PIL import Image
 import logging
-from prompt.history import History
-from prompt.history_format import HistoryFormat
+from src.prompt.history import History
+from src.prompt.history_format import HistoryFormat
 
 logger = logging.getLogger(__name__)
 

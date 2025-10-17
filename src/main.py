@@ -15,10 +15,17 @@ import logging
 import traceback
 
 # Ensure we're using the correct Python path for local imports
-PROJECT_ROOT = Path(__file__).parent.absolute()
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_ROOT = Path(__file__).parent.resolve()
+# Add both the repository root (parent of `src`) and the `src` directory to sys.path.
+# This ensures imports like `src.prompt...` (which expect the repo root on sys.path)
+# and imports like `main.console_io` (which expect `src` on sys.path) both work
+# whether the module is executed as a script or imported as a package.
+REPO_ROOT = PROJECT_ROOT.parent
+for p in (str(REPO_ROOT), str(PROJECT_ROOT)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-from main.chat_application import SmolVLMChatApplication
+from main.console_io import run_interactive_chat
 from config import load_config, create_default_config_file, get_config
 
 
@@ -147,11 +154,9 @@ def main():
         except Exception as e:
             logging.warning(f"Failed to determine runtime platform: {e}")
 
-        # Initialize chat application (it will use the global configuration)
-        app = SmolVLMChatApplication()
-
-        # Start the interactive chat interface
-        app.run_interactive_chat()
+        # Start the interactive chat interface. console_io will create the
+        # application instance and manage the I/O loop.
+        run_interactive_chat()
 
     except Exception as e:
         # Log and display any startup errors

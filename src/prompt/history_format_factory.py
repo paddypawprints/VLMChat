@@ -22,9 +22,10 @@ class HistoryFormatFactory:
     formatting strategies.
     """
 
+    # Only include the supported formats used across the codebase and tests.
     _format_map: Dict[HistoryFormat, Type[HistoryFormatBase]] = {
         HistoryFormat.XML: HistoryFormatXML,
-        HistoryFormat.MINIMAL: HistoryFormatMinimal
+        HistoryFormat.MINIMAL: HistoryFormatMinimal,
     }
 
     @classmethod
@@ -42,12 +43,33 @@ class HistoryFormatFactory:
         Raises:
             ValueError: If the requested format type is not supported
         """
-        if format_type not in cls._format_map:
-            supported_formats = list(cls._format_map.keys())
-            raise ValueError(f"Unsupported format type: {format_type}. "
-                           f"Supported formats: {supported_formats}")
+        # Reject plain string inputs (tests expect ValueError for string types).
+        if isinstance(format_type, str):
+            raise ValueError("format_type must be a HistoryFormat enum, not a string")
 
-        formatter_class = cls._format_map[format_type]
+        # Accept either the HistoryFormat enum or a compatible enum from another
+        # import path. Resolve by comparing `.value` when direct key lookup fails.
+        if format_type not in cls._format_map:
+            # try to resolve by .value or by string
+            val = None
+            try:
+                val = format_type.value
+            except Exception:
+                val = str(format_type)
+
+            resolved = None
+            for k in cls._format_map.keys():
+                if getattr(k, 'value', None) == val or str(k) == val:
+                    resolved = k
+                    break
+
+            if resolved is None:
+                supported_formats = list(cls._format_map.keys())
+                raise ValueError(f"Unsupported format type: {format_type}. Supported formats: {supported_formats}")
+            formatter_class = cls._format_map[resolved]
+        else:
+            formatter_class = cls._format_map[format_type]
+
         return formatter_class(**kwargs)
 
     @classmethod

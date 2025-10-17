@@ -8,33 +8,38 @@ so callers can switch backends transparently.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Generator
+from typing import Any, Dict, List, Generator, Optional
 
 import numpy as np
 import onnxruntime
 from transformers import AutoProcessor, AutoConfig
 from PIL import Image
 
-from models.SmolVLM.backend_base import BackendBase
+from models.SmolVLM.runtime_base import RuntimeBase
 from models.SmolVLM.model_config import ModelConfig
 from utils.onnx_utils import get_onnx_file_paths, setup_onnx_environment
 from config import get_config
 
+from utils.metrics_collector import Collector, null_collector
+
 logger = logging.getLogger(__name__)
 
 
-class OnnxBackend(BackendBase):
-    def __init__(self, config: ModelConfig):
+class OnnxBackend(RuntimeBase):
+    def __init__(self, config: ModelConfig, collector: Optional[Collector] = null_collector()):
         self._config = config
         self._use_onnx = True
         self._processor = None
         self._hf_config = None
+        self._collector = collector
+        self._eos_token_id = []
 
         try:
             # Try to load processor/config for input preparation
             try:
                 self._hf_config = AutoConfig.from_pretrained(self._config.model_path)
                 self._processor = AutoProcessor.from_pretrained(self._config.model_path)
+                self._tokenizer = self._processor.tokenizer
             except Exception:
                 # processor is optional for ONNX if inputs are made externally
                 self._hf_config = None
@@ -57,8 +62,27 @@ class OnnxBackend(BackendBase):
                 self._num_key_value_heads = text_config.num_key_value_heads
                 self._head_dim = text_config.head_dim
                 self._num_hidden_layers = text_config.num_hidden_layers
-                self._eos_token_id = text_config.eos_token_id
+                # Ensure eos token ids are stored as a list so callers can
+                # safely append or iterate over them. HF configs may provide
+                # a single int or a sequence.
+                cfg_eos = text_config.eos_token_id
+                if cfg_eos is None:
+                    self._eos_token_id = []
+                elif isinstance(cfg_eos, (list, tuple)):
+                    self._eos_token_id = list(cfg_eos)
+                else:
+                    # cast scalars to int and wrap in a list
+                    try:
+                        self._eos_token_id = [int(cfg_eos)]
+                    except Exception:
+                        # fallback to empty list on unexpected types
+                        self._eos_token_id = []
+
                 self._image_token_id = self._hf_config.image_token_id
+            eos = self._analyze_special_tokens()
+            if eos is not None and eos != 0:
+                logger.info(f"Adding EOS token: {eos}")
+                self._eos_token_id.append(eos)
 
             logger.info("ONNX sessions loaded")
 
@@ -69,6 +93,24 @@ class OnnxBackend(BackendBase):
     @property
     def is_available(self) -> bool:
         return self._use_onnx
+
+    def _analyze_special_tokens(self):
+        """
+        Analyze and log special token information for debugging.
+
+        Examines special tokens used by the model to ensure they are properly
+        configured in the tokenizer vocabulary. Logs token information for
+        troubleshooting tokenization issues.
+        """
+        special_token = self._config.special_tokens["end_of_utterance"]
+        is_in_vocab = special_token in self._tokenizer.vocab
+        token_id = self._tokenizer.convert_tokens_to_ids(special_token)
+
+        logger.info(f"Special token '{special_token}' in vocabulary: {is_in_vocab}")
+        logger.info(f"Token ID for '{special_token}': {token_id}")
+        logger.info(f"EOS token: {self._tokenizer.eos_token}")
+        logger.info(f"EOS token ID: {self._tokenizer.eos_token_id}")
+        return token_id
 
     def prepare_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, Any]:
         if self._processor is None:
@@ -102,26 +144,29 @@ class OnnxBackend(BackendBase):
         position_ids = np.cumsum(inputs['attention_mask'], axis=-1)
 
         for i in range(max_new_tokens):
-            inputs_embeds = self._embed_session.run(None, {'input_ids': input_ids})[0]
+            with self._collector.duration_timer("smolVLM-onnx", {"embeds": None}):
+                inputs_embeds = self._embed_session.run(None, {'input_ids': input_ids})[0]
 
             if image_features is None:
-                image_features = self._vision_session.run(
-                    ['image_features'],
-                    {
-                        'pixel_values': inputs['pixel_values'],
-                        'pixel_attention_mask': inputs['pixel_attention_mask'].astype(np.bool_)
-                    }
-                )[0]
+                with self._collector.duration_timer("smolVLM-onnx", {"vision-encoder": None}):
+                    image_features = self._vision_session.run(
+                        ['image_features'],
+                        {
+                            'pixel_values': inputs['pixel_values'],
+                            'pixel_attention_mask': inputs['pixel_attention_mask'].astype(np.bool_)
+                        }
+                    )[0]
 
                 inputs_embeds[inputs['input_ids'] == self._image_token_id] = \
                     image_features.reshape(-1, image_features.shape[-1])
 
-            logits, *present_key_values = self._decoder_session.run(None, dict(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                **past_key_values,
-            ))
+            with self._collector.duration_timer("smolVLM-onnx", {"decoder": None}):
+                logits, *present_key_values = self._decoder_session.run(None, dict(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    **past_key_values,
+                ))
 
             input_ids = logits[:, -1].argmax(-1, keepdims=True)
             attention_mask = np.ones_like(input_ids)

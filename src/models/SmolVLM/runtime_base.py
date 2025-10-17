@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Generator
 from PIL import Image
 
 
-class BackendBase(ABC):
+class RuntimeBase(ABC):
     """Abstract base class for model backends."""
 
     @property

@@ -9,3 +9,6 @@ class HistoryFormat(Enum):
     """
     XML = "xml"        # XML-structured format with tags
     MINIMAL = "minimal"  # Condensed format with abbreviations
+    # NOTE: The "nohistory" formatter was removed from the supported enum to
+    # keep the set of supported formats constrained to those used by the
+    # codebase and tests (xml, minimal).

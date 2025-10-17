@@ -208,7 +208,7 @@ collector = Collector()
 collector.register_timeseries("requests", registered_attribute_keys=["route"], max_count=256)
 
 session = Session(collector)
-counter = CounterInstrument("reqs", binding_attributes={"route": "/home"})
+counter = CounterInstrument("reqs", binding_keys=["route"])
 session.add_instrument(counter, "requests")
 
 collector.data_point("requests", {"route": "/home"}, 1)

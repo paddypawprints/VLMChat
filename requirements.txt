@@ -4,6 +4,8 @@ torch
 transformers
 pillow
 requests
+psutil
+pynvml
 
 # Optional dependencies for enhanced functionality
 onnxruntime  # For optimized model inference

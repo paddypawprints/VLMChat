@@ -10,15 +10,30 @@ handling, image processing, camera capture, and user interface components.
 import logging
 from PIL import Image
 
-from models.SmolVLM.smol_vlm_model import SmolVLMModel
+from models.SmolVLM.smol_vlm_model import SmolVLMModel, smol_vlm_metrics_create
 from models.SmolVLM.model_config import ModelConfig
 from utils.image_utils import load_image_from_url, load_image_from_file
-from prompt.prompt import Prompt,HistoryFormat
+from src.prompt.prompt import Prompt
+from src.prompt.history_format import HistoryFormat
 #from utils.camera import IMX500ObjectDetection
 from utils.camera_factory import CameraFactory
 from utils.camera_base import BaseCamera, CameraModel, Platform
+from utils.metrics_collector import Session, CounterInstrument, HistogramByAttributeInstrument  
 
 logger = logging.getLogger(__name__)
+
+from main.service_response import ServiceResponse
+from main.service_response import ServiceResponse as SR
+# ServiceResponse codes are defined in `src/main/service_response.py`.
+# For quick reference:
+#   SR.Code.OK (0)                - Success
+#   SR.Code.EXIT (1)              - Exit interactive loop
+#   SR.Code.IMAGE_LOAD_FAILED (2) - Image URL/file load failed
+#   SR.Code.INVALID_FORMAT (3)    - Invalid /format argument
+#   SR.Code.CAMERA_FAILED (4)     - Camera capture failed
+#   SR.Code.NO_METRICS_SESSION (5)- No metrics session available
+#   SR.Code.BACKEND_FAILED (6)    - Backend query or switch failed
+#   SR.Code.UNKNOWN_COMMAND (7)   - Unrecognized command
 
 class SmolVLMChatApplication:
     """Main application class for SmolVLM chat interface."""
@@ -28,7 +43,7 @@ class SmolVLMChatApplication:
                  use_onnx: bool = None,
                  max_pairs: int = None,
                  max_images: int = None,
-                 history_format: HistoryFormat = None):
+                 history_format: HistoryFormat = HistoryFormat.XML):
         """
         Initialize the chat application with all required components.
 
@@ -78,18 +93,26 @@ class SmolVLMChatApplication:
             # Create a metrics collector and pass it into the model for telemetry
             from utils.metrics_collector import Collector
             self._collector = Collector()
-            self._model = SmolVLMModel(self._config, use_onnx=use_onnx, collector=self._collector)
-
-            # Create an application-level session and a model-level session
-            self._app_session = self._collector and self._collector and None
+            self._collector.register_timeseries("camera", ["inputs","generate"], ttl_seconds=600)
+            smol_vlm_metrics_create(self._collector)
+            self._session = self._collector and self._collector and None
             try:
                 from utils.metrics_collector import Session
-                self._app_session = Session(self._collector)
-                # create a separate session for model-internal metrics
-                self._model.session = Session(self._collector)
+                self._session = Session(self._collector)
             except Exception:
                 logger.exception("Failed to create metrics sessions")
 
+            counter = CounterInstrument("requests_counter", ["generate"])
+            self._session.add_instrument(counter, "smolVLM-inference")
+            histogram = HistogramByAttributeInstrument("his")
+            self._session.add_instrument(histogram, "smolVLM-inference")
+            histogram_onnx = HistogramByAttributeInstrument("his-onnx")
+            self._session.add_instrument(histogram_onnx, "smolVLM-onnx")
+
+            self._model = SmolVLMModel(self._config, use_onnx=use_onnx, collector=self._collector)
+
+            # Create an application-level session and a model-level session
+ 
             # Initialize conversation management
             self._prompt = Prompt(
                 max_pairs=max_pairs,
@@ -152,6 +175,93 @@ class SmolVLMChatApplication:
         """
         self._prompt.history.set_format(history_format)
 
+    # --- Service methods (business logic) ---------------------------------
+    # Note: help UI is handled by console_io (app._print_help_message is used)
+
+    def _service_load_url(self, url: str) -> ServiceResponse:
+        image = load_image_from_url(url)
+        if image:
+            self._prompt.history.set_current_image(image)
+            self._prompt.history.clear_history()
+            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully. Conversation history cleared for new image.")
+        return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Failed to load image.")
+
+    def _service_load_file(self, path: str) -> ServiceResponse:
+        image = load_image_from_file(path)
+        if image:
+            self._prompt.history.set_current_image(image)
+            self._prompt.history.clear_history()
+            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully. Conversation history cleared for new image.")
+        return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Failed to load image.")
+
+    def _service_clear_context(self) -> ServiceResponse:
+        self._prompt.history.clear_history()
+        return ServiceResponse(ServiceResponse.Code.OK, "Conversation history cleared.")
+
+    def _service_show_context(self) -> ServiceResponse:
+        return ServiceResponse(ServiceResponse.Code.OK, str(self._prompt.history))
+
+    def _service_context_stats(self) -> ServiceResponse:
+        stats = self._prompt.history.get_stats()
+        lines = ["Context Buffer Statistics:"]
+        for key, value in stats.items():
+            lines.append(f"  {key}: {value}")
+        return ServiceResponse(ServiceResponse.Code.OK, "\n".join(lines))
+
+    def _service_format(self, arg: str) -> ServiceResponse:
+        try:
+            new_format = HistoryFormat(arg.strip().lower())
+            self._prompt.history.set_format(new_format)
+            return ServiceResponse(ServiceResponse.Code.OK, f"Context format changed to: {new_format.value}")
+        except (ValueError, KeyError):
+            return ServiceResponse(ServiceResponse.Code.INVALID_FORMAT, "Invalid format. Use: xml or minimal")
+
+    def _service_camera(self) -> ServiceResponse:
+        if self.capture_from_camera():
+            return ServiceResponse(ServiceResponse.Code.OK, "Image captured and ready for use in conversation")
+        return ServiceResponse(ServiceResponse.Code.CAMERA_FAILED, "Failed to capture image")
+
+    def _service_metrics(self) -> ServiceResponse:
+        sess = getattr(self, '_session', None)
+        if sess is None:
+            return ServiceResponse(ServiceResponse.Code.NO_METRICS_SESSION, "No metrics session")
+        sess_dict = sess.to_dict()
+        out_lines = ["=== Session Metrics ==="]
+        out_lines.append(f"start_time: {sess_dict.get('start_time')}")
+        out_lines.append(f"end_time: {sess_dict.get('end_time')}")
+        insts = sess_dict.get('instruments', [])
+        if not insts:
+            out_lines.append("No instruments attached to the session.")
+        else:
+            for item in insts:
+                ts_name = item.get('timeseries')
+                inst_export = item.get('instrument')
+                out_lines.append(f"Instrument bound to timeseries '{ts_name}':")
+                try:
+                    import json as _json
+                    out_lines.append(_json.dumps(inst_export, indent=2))
+                except Exception:
+                    out_lines.append(str(inst_export))
+        return ServiceResponse(ServiceResponse.Code.OK, "\n".join(out_lines))
+
+    def _service_backend(self, parts: list[str]) -> ServiceResponse:
+        if len(parts) == 1:
+            try:
+                return ServiceResponse(ServiceResponse.Code.OK, f"Current backend: {self._model.current_backend()}")
+            except Exception:
+                return ServiceResponse(ServiceResponse.Code.BACKEND_FAILED, "Failed to query current backend")
+        new_backend = parts[1].strip().lower()
+        try:
+            self._model.set_runtime(new_backend)
+            return ServiceResponse(ServiceResponse.Code.OK, f"Backend switched to: {self._model.current_backend()}")
+        except Exception as e:
+            return ServiceResponse(ServiceResponse.Code.BACKEND_FAILED, f"Failed to switch backend: {e}")
+
+    # _process_command was removed and the interactive loop moved to
+    # main.console_io.run_interactive_chat(app). This class retains only the
+    # service methods; callers should use the console_io helpers to run the
+    # interactive loop.
+
     def capture_from_camera(self) -> bool:
         """
         Capture an image from the camera and load it into the current context.
@@ -168,7 +278,7 @@ class SmolVLMChatApplication:
         try:
             filepath, image = self._camera.capture_single_image()
             self._prompt.current_image = image
-            print(f"Captured image saved to: {filepath}")
+            logger.info(f"Captured image saved to: {filepath}")
             return True
         except Exception as e:
             logger.error(f"Failed to capture image: {e}")
@@ -231,16 +341,16 @@ class SmolVLMChatApplication:
         use to interact with the chat application, including image loading,
         context management, and application control commands.
         """
-        print("Available Commands:")
-        print("  /load_url <url>     - Load image from URL for conversation")
-        print("  /load_file <path>   - Load image from local file path")
-        print("  /clear_context      - Clear conversation history")
-        print("  /show_context       - Display current conversation history")
-        print("  /context_stats      - Show context buffer statistics")
-        print("  /format <format>    - Change history format (xml|minimal)")
-        print("  /camera             - Capture image from camera")
-        print("  /help               - Show this help message")
-        print("  /quit               - Exit the application")
+        logger.info("Available Commands:")
+        logger.info("  /load_url <url>     - Load image from URL for conversation")
+        logger.info("  /load_file <path>   - Load image from local file path")
+        logger.info("  /clear_context      - Clear conversation history")
+        logger.info("  /show_context       - Display current conversation history")
+        logger.info("  /context_stats      - Show context buffer statistics")
+        logger.info("  /format <format>    - Change history format (xml|minimal|nohistory)")
+        logger.info("  /camera             - Capture image from camera")
+        logger.info("  /help               - Show this help message")
+        logger.info("  /quit               - Exit the application")
 
     def run_interactive_chat(self) -> None:
         """
@@ -254,102 +364,8 @@ class SmolVLMChatApplication:
             KeyboardInterrupt: Handled gracefully to allow clean exit
             Exception: Other exceptions are logged but don't crash the application
         """
-        print("=== SmolVLM Interactive Chat ===")
-        self._print_help_message()
-        print()
-        
-        while True:
-            try:
-                user_input = input("\nYou: ").strip()
-                
-                if not user_input:
-                    continue
-                
-                # Handle commands
-                if user_input.startswith('/quit'):
-                    print("Goodbye!")
-                    break
-                elif user_input.startswith('/help'):
-                    self._print_help_message()
-                    continue
-                elif user_input.startswith('/load_url '):
-                    # Extract URL from command
-                    url = user_input[10:].strip()
-                    image = load_image_from_url(url)
-                    if image:
-                        print("Image loaded successfully!")
-                        self._prompt.history.set_current_image(image)
-                        self._prompt.history.clear_history()
-                        print("Conversation history cleared for new image.")
-                    else:
-                        print("Failed to load image.")
-                    continue
-                elif user_input.startswith('/load_file '):
-                    # Extract file path from command
-                    path = user_input[11:].strip()
-                    image = load_image_from_file(path)
-                    if image:
-                        print("Image loaded successfully!")
-                        self._prompt.history.set_current_image(image)
-                        self._prompt.history.clear_history()
-                        print("Conversation history cleared for new image.")
-                    else:
-                        print("Failed to load image.")
-                    continue
-                elif user_input.startswith('/clear_context'):
-                    # Clear all conversation history
-                    self._prompt.history.clear_history()
-                    print("Conversation history cleared.")
-                    continue
-                elif user_input.startswith('/show_context'):
-                    # Display the current conversation history
-                    print(str(self._prompt.history))
-                    continue
-                elif user_input.startswith('/context_stats'):
-                    # Show detailed statistics about conversation context
-                    stats = self._prompt.history.get_stats()
-                    print("Context Buffer Statistics:")
-                    for key, value in stats.items():
-                        print(f"  {key}: {value}")
-                    continue
-                elif user_input.startswith("/format"):
-                    # Change the conversation history formatting
-                    try:
-                        _, format_name = user_input.split(maxsplit=1)
-                        new_format = HistoryFormat(format_name.lower())
-                        self._prompt.history.set_format(new_format)
-                        print(f"Context format changed to: {new_format.value}")
-                    except (ValueError, KeyError):
-                        print("Invalid format. Use: xml or minimal")
-                    continue
-                elif user_input.lower() == "/camera":
-                    # Capture image from camera
-                    if self.capture_from_camera():
-                        print("Image captured and ready for use in conversation")
-                    else:
-                        print("Failed to capture image")
-                    continue
-                elif user_input.startswith('/backend'):
-                    # Show or change the model backend
-                    parts = user_input.split()
-                    if len(parts) == 1:
-                        print(f"Current backend: {self._model.current_backend()}")
-                    else:
-                        new_backend = parts[1].strip().lower()
-                        try:
-                            self._model.set_backend(new_backend)
-                            print(f"Backend switched to: {self._model.current_backend()}")
-                        except Exception as e:
-                            print(f"Failed to switch backend: {e}")
-                    continue
-
-                # Process regular query (not a command)
-                response = self.process_query(user_input)
-                print(f"\nSmolVLM: {response}")
-                
-            except KeyboardInterrupt:
-                print("\nGoodbye!")
-                break
-            #except Exception as e:
-                #logger.error(f"Error in chat loop: {e}")
-                #print(f"An error occurred: {e}")
+        # NOTE: The interactive loop is owned by the console_io module so this
+        # class intentionally does not import or depend on console_io. To run
+        # the interactive interface, call `main.console_io.run_interactive_chat()`
+        # which will instantiate and use this application class.
+        raise RuntimeError("Interactive loop is owned by console_io; call run_interactive_chat() from main.console_io")
