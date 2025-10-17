@@ -8,6 +8,7 @@ from typing import Iterable, Any
 import json
 import sys
 from pathlib import Path
+import time
 
 # Try relative imports when used as a package (normal case). If the module is
 # executed directly (python src/main/console_io.py) the package context may not
@@ -54,6 +55,8 @@ def print_help_message() -> None:
     print("  /context_stats      - Show context buffer statistics")
     print("  /format <format>    - Change history format (xml|minimal)")
     print("  /camera             - Capture image from camera")
+    print("  /wait <seconds>     - Wait the given number of seconds before accepting input")
+    print("  /echo <text>        - Echo the given text back to the console")
     print("  /help               - Show this help message")
     print("  /quit               - Exit the application")
 
@@ -63,6 +66,10 @@ def process_command(app, user_input: str) -> bool:
 
     Returns True to continue the interactive loop, False to exit.
     """
+    # Ignore comment lines starting with '#'. This allows users to paste or
+    # include comment lines in scripted input; they are treated as no-ops.
+    if user_input.strip().startswith('#'):
+        return True
     # Quit handled as special case
     if user_input.startswith('/quit'):
         print_text("Goodbye!")
@@ -123,6 +130,34 @@ def process_command(app, user_input: str) -> bool:
             print_text(resp.message)
         return resp.code == SR.Code.OK
 
+    if user_input.startswith('/wait'):
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            print_text("Usage: /wait <seconds>")
+            return True
+        arg = parts[1].strip()
+        try:
+            secs = float(arg)
+            if secs < 0:
+                raise ValueError("negative")
+        except Exception:
+            print_text("Invalid number of seconds. Provide a non-negative number, e.g. /wait 2.5")
+            return True
+        # Inform the user and sleep; this blocks the console until done.
+        print_text(f"Waiting for {secs} seconds...")
+        try:
+            time.sleep(secs)
+        except KeyboardInterrupt:
+            print_text("Wait interrupted.")
+        return True
+
+    if user_input.startswith('/echo'):
+        # Echo the remainder of the line (allow multiple words)
+        parts = user_input.split(maxsplit=1)
+        text = parts[1] if len(parts) > 1 else ''
+        print_text(text)
+        return True
+
     if user_input.startswith('/metrics'):
         resp = app._service_metrics()
         if resp.message:
@@ -158,6 +193,10 @@ def run_interactive_chat() -> None:
             user_input = input_text("\nYou: ").strip()
 
             if not user_input:
+                continue
+
+            # Allow comment lines beginning with '#' to be ignored.
+            if user_input.startswith('#'):
                 continue
 
             if user_input.startswith('/'):
