@@ -127,9 +127,9 @@ class TestImageLibraryCamera:
         paths_str = [str(p.relative_to(base)) for p in camera._image_paths]
         
         assert paths_str[0] == "root.jpg"
-        assert paths_str[1] == os.path.join("a_dir", "a1.jpg")
-        assert paths_str[2] == os.path.join("a_dir", "b_subdir", "b1.jpg")
-        assert paths_str[3] == os.path.join("b_dir", "c1.jpg")
+        assert paths_str[1] == str(Path("a_dir") / "a1.jpg")
+        assert paths_str[2] == str(Path("a_dir") / "b_subdir" / "b1.jpg")
+        assert paths_str[3] == str(Path("b_dir") / "c1.jpg")
     
     def test_image_resize_larger(self, temp_image_dir, temp_save_dir):
         """Test image resize when source is smaller than target."""

@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 
 from .camera_base import BaseCamera, CameraModel, Platform, Device
-from .metrics_collector import Collector, Session, CounterInstrument, AverageDurationInstrument
+from .metrics_collector import Collector, ValueType
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,6 @@ class ImageLibraryCamera(BaseCamera):
         
         # Initialize metrics
         self._metrics_collector = metrics_collector
-        self._metrics_session = None
         self._setup_metrics()
         
         # Image list and current state
@@ -111,30 +110,12 @@ class ImageLibraryCamera(BaseCamera):
             registered_attribute_keys=[],
             max_count=100
         )
-        
-        # Create session and instruments
-        self._metrics_session = Session(self._metrics_collector)
-        
-        # Counter for operations (resize, crop, fill)
-        self._resize_counter = CounterInstrument("resize_count", binding_keys=["operation"])
-        self._crop_counter = CounterInstrument("crop_count", binding_keys=["operation"])
-        self._fill_counter = CounterInstrument("fill_count", binding_keys=["operation"])
-        
-        # Average frame rate instrument
-        self._framerate_instrument = AverageDurationInstrument("actual_framerate", binding_keys=[])
-        
-        # Add instruments to session
-        self._metrics_session.add_instrument(self._resize_counter, "image_library_operations")
-        self._metrics_session.add_instrument(self._crop_counter, "image_library_operations")
-        self._metrics_session.add_instrument(self._fill_counter, "image_library_operations")
-        self._metrics_session.add_instrument(self._framerate_instrument, "image_library_framerate")
     
     def _record_metric(self, operation: str, value: float = 1.0):
         """Record a metric datapoint."""
         if self._metrics_collector is None:
             return
         
-        from .metrics_collector import ValueType
         self._metrics_collector.add_datapoint(
             "image_library_operations",
             ValueType.INT,
@@ -147,7 +128,6 @@ class ImageLibraryCamera(BaseCamera):
         if self._metrics_collector is None:
             return
         
-        from .metrics_collector import ValueType
         self._metrics_collector.add_datapoint(
             "image_library_framerate",
             ValueType.DURATION,
