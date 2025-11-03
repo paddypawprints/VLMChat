@@ -16,6 +16,7 @@ class CameraModel(Enum):
     IMX500 = "imx500"
     IMX477 = "imx477"
     IMX219 = "imx219"
+    IMAGE_LIBRARY = "image_library"
 
 
 class Platform(Enum):
