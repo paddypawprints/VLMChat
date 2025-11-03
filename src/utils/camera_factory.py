@@ -105,6 +105,35 @@ class CameraFactory:
                 
             return IMX219Camera(platform=platform, device=device)
 
+        elif model == CameraModel.IMAGE_LIBRARY:
+            logger.info(f"CameraFactory: creating ImageLibrary camera on {platform} (device={device})")
+            from .image_library_camera import ImageLibraryCamera
+            
+            # Extract ImageLibrary-specific args from args dict
+            if args is None:
+                raise ValueError("ImageLibrary camera requires 'args' with 'image_base_dir'")
+            
+            image_base_dir = args.get('image_base_dir')
+            if image_base_dir is None:
+                raise ValueError("ImageLibrary camera requires 'image_base_dir' in args")
+            
+            width = args.get('width', 640)
+            height = args.get('height', 480)
+            framerate = args.get('framerate', 5)
+            save_dir = args.get('save_dir', './captures')
+            metrics_collector = args.get('metrics_collector', None)
+            
+            return ImageLibraryCamera(
+                image_base_dir=image_base_dir,
+                width=width,
+                height=height,
+                framerate=framerate,
+                platform=platform,
+                device=device,
+                save_dir=save_dir,
+                metrics_collector=metrics_collector,
+            )
+
         else:
             raise ValueError(f"Unsupported camera model: {model} on platform: {platform}")
 
