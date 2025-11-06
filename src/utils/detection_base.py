@@ -7,6 +7,7 @@ for object detection capabilities.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
+from PIL import Image
 
 
 class Detection:
@@ -18,7 +19,7 @@ class Detection:
     already converted to image coordinates by the implementing camera class.
     """
 
-    def __init__(self, box: Tuple[int, int, int, int], category: str, conf: float):
+    def __init__(self, box: Tuple[int, int, int, int], object_category: str, detection_category: str = "Object", conf: float):
         """
         Create a Detection object with converted coordinates.
 
@@ -28,37 +29,56 @@ class Detection:
             conf: Confidence score for the detection
         """
         self.box = box
-        self.category = category
+        self.object_category = object_category
         self.conf = conf
+        self.children = []
+
+    def add_child(self, detection: Detection)-> None
+        self.children.append(detection)
 
 
-class ObjectDetectionInterface(ABC):
+class ObjectDetector(ABC):
     """
     Abstract interface for object detection capabilities.
 
     Defines the contract for cameras that support object detection,
     including detection parsing and continuous detection loops.
     """
-
     @abstractmethod
-    def parse_detections(self, metadata: dict) -> Optional[List[Detection]]:
-        """
-        Parse neural network output into detected objects.
-
-        Args:
-            metadata: Frame metadata containing inference results
-
-        Returns:
-            List of detected objects or None if no outputs available
-        """
+    def start(self)->None
         pass
 
     @abstractmethod
-    def run_detection_loop(self):
-        """
-        Run continuous object detection loop.
-        """
+    def stop(self)->None
         pass
+
+    @abstractmethod
+    def readiness(self)
+        return False
+
+    @abstractmethod
+    def detect( image: Image, detections: Optional[List[Detection]] ) -> List[Detection]
+        pass
+    
+##    @abstractmethod
+##    def parse_detections(self, metadata: dict) -> Optional[List[Detection]]:
+##        """
+##        Parse neural network output into detected objects.
+##
+##        Args:
+##            metadata: Frame metadata containing inference results
+##
+##        Returns:
+##            List of detected objects or None if no outputs available
+##        """
+##        pass
+##
+##    @abstractmethod
+##    def run_detection_loop(self):
+##        """
+##        Run continuous object detection loop.
+##        """
+##        pass
 
     @abstractmethod
     def get_labels(self) -> List[str]:

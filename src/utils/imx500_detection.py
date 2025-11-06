@@ -90,7 +90,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
         )
 
         # Start camera with neural network loading progress
-        self._imx500.show_network_fw_progress_bar()
+        # self._imx500.show_network_fw_progress_bar()
         self._picam2.start(self._config, show_preview=False)
         if self._intrinsics.preserve_aspect_ratio:
             self._imx500.set_auto_aspect_ratio()
@@ -205,7 +205,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
 
         # Create Detection objects for valid detections with coordinate conversion
         detections = []
-        for box, score, category in zip(boxes, scores, classes):
+        for box, score, object_category in zip(boxes, scores, classes):
             if score > threshold:
                 # Convert coordinates using IMX500 method and convert to integers
                 converted_box = self._imx500.convert_inference_coords(box, metadata, self._picam2)
@@ -214,9 +214,9 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
 
                 # Get category label
                 labels = self.get_labels()
-                category_label = labels[int(category)] if int(category) < len(labels) else f"class_{int(category)}"
+                object_category_label = labels[int(object_category)] if int(object_category) < len(labels) else f"class_{int(category)}"
 
-                detections.append(Detection(int_box, category_label, float(score)))
+                detections.append(Detection(int_box, object_category_label, float(score)))
 
         return detections
 
