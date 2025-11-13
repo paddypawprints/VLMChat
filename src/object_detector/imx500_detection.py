@@ -16,9 +16,9 @@ import numpy as np
 from picamera2.devices.imx500 import (NetworkIntrinsics,
                                       postprocess_nanodet_detection)
 
-from .imx500_camera import IMX500Camera
-from .detection_base import Detection, ObjectDetectionInterface
-from .camera_base import Platform, Device
+from ..camera.imx500_camera import IMX500Camera
+from .utils.detection_base import Detection, ObjectDetectionInterface
+from ..camera.camera_base import Platform, Device
 
 
 class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
@@ -46,7 +46,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
         self._args = args if args else self.get_args()
 
         # Call BaseCamera.__init__ directly to avoid IMX500Camera setup
-        from .camera_base import BaseCamera, CameraModel
+        from ..camera.camera_base import BaseCamera, CameraModel
         BaseCamera.__init__(self, CameraModel.IMX500, platform, device)
 
         # Setup IMX500 with neural processing
@@ -72,7 +72,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
 
         # Load default COCO labels if none provided
         if self._intrinsics.labels is None:
-            from config import get_config
+            from src.utils.config import get_config
             config = get_config()
             coco_labels_path = os.path.join(config.paths.project_root, config.paths.coco_labels_path)
             with open(coco_labels_path, "r") as f:
@@ -100,7 +100,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
         self._jobs = queue.Queue()
 
         # Create directory for captured images using configuration
-        from config import get_config
+        from src.utils.config import get_config
         config = get_config()
         self._save_path = config.paths.captured_images_dir
         if not os.path.exists(self._save_path):

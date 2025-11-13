@@ -10,6 +10,7 @@ loaded from the global application configuration.
 
 from dataclasses import dataclass
 from typing import Dict, Any
+from src.utils.config import VLMChatConfig
 
 
 @dataclass
@@ -32,7 +33,7 @@ class ModelConfig:
     eos_token_id: int = None
     special_tokens: Dict[str, str] = None
 
-    def __post_init__(self):
+    def __init__(self, config: VLMChatConfig):
         """
         Initialize configuration from global config and set up default special tokens.
 
@@ -40,10 +41,6 @@ class ModelConfig:
         and sets up default special tokens used by the model for conversation
         management and utterance boundaries.
         """
-        # Import here to avoid circular imports
-        from config import get_config
-
-        config = get_config()
 
         # Load values from global config if not explicitly provided
         if self.max_new_tokens is None:

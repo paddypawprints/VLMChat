@@ -98,7 +98,7 @@ This document summarizes the implementation of the ImageLibraryCamera class, a n
 
 ### Basic Usage
 ```python
-from utils.image_library_camera import ImageLibraryCamera
+from camera.image_library_camera import ImageLibraryCamera
 
 camera = ImageLibraryCamera(
     image_base_dir="/path/to/images",
@@ -129,8 +129,8 @@ camera = ImageLibraryCamera(
 
 ### Via Factory
 ```python
-from utils.camera_factory import CameraFactory
-from utils.camera_base import CameraModel
+from camera.camera_factory import CameraFactory
+from camera.camera_base import CameraModel
 
 camera = CameraFactory.create_camera(
     model=CameraModel.IMAGE_LIBRARY,

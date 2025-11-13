@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 
 from .camera_base import BaseCamera, CameraModel, Platform, Device
-from .metrics_collector import Collector, ValueType
+from ..metrics.metrics_collector import Collector, ValueType
 
 logger = logging.getLogger(__name__)
 

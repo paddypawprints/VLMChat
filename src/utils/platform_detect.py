@@ -1,24 +1,29 @@
 """
 Runtime platform detection utilities.
 
-Provides a small heuristic to detect if the code is running on a Raspberry Pi
-or a NVIDIA Jetson device. Detection is intentionally conservative and allows
+Provides a small heuristic to detect which platform and architecture the code is running on. Detection is intentionally conservative and allows
 overrides via environment variables for testing.
 """
 from __future__ import annotations
 
 import os
+from enum import Enum
 import platform as _platform
 from typing import Optional
 
-from .camera_base import Platform
+
+class Platform(Enum):
+    """Supported platforms."""
+    RPI = "rpi"
+    JETSON = "jetson"
+    MAC = "mac"
 
 
-def detect_platform() -> Platform:
+def detect_platform(cfg : str = None) -> Optional[Platform]:
     """Detect runtime platform.
 
     Tries the following heuristics in order:
-    1. Environment override: VLMCHAT_PLATFORM (rpi|jetson|generic)
+    1. Environment override: VLMCHAT_PLATFORM (rpi|jetson|mac|generic)
     2. Look for Jetson-specific files (/proc/device-tree/compatible) containing 'nvidia'
     3. Raspbian / Raspberry Pi hints in /proc/device-tree/model or platform.machine()
     4. Fallback to GENERIC mapped to RPI by default for now
@@ -26,13 +31,23 @@ def detect_platform() -> Platform:
     Returns:
         Platform: Detected platform enum
     """
-    env = os.environ.get('VLMCHAT_PLATFORM')
+    env = cfg if cfg else os.environ.get('VLMCHAT_PLATFORM')
     if env:
         env = env.strip().lower()
-        if env in ('rpi', 'raspberry', 'raspberrypi'):
+        if env in (Platform.RPI.value):
             return Platform.RPI
-        if env in ('jetson', 'nvidia'):
+        if env in (Platform.JETSON.value):
             return Platform.JETSON
+        if env in (Platform.MAC.value):
+            return Platform.MAC
+
+    match _platform.system().lower(): # type: ignore
+        case 'darwin':
+            return Platform.MAC
+        case 'windows':
+            raise NotImplementedError("Windows platform is not supported yet.")
+        case 'linux':
+            pass
 
     # Check for Jetson via device-tree compatible or /proc/cpuinfo markers
     try:
@@ -107,11 +122,4 @@ def detect_platform() -> Platform:
         return Platform.RPI
 
     # Default fallback
-    return Platform.RPI
-
-
-def detect_platform_optional() -> Optional[Platform]:
-    try:
-        return detect_platform()
-    except Exception:
-        return None
+    return None

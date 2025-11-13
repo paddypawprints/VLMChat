@@ -28,10 +28,10 @@ SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from utils.image_library_camera import ImageLibraryCamera
-from utils.camera_base import CameraModel, Platform, Device
-from utils.camera_factory import CameraFactory
-from utils.metrics_collector import Collector, ValueType
+from camera.image_library_camera import ImageLibraryCamera
+from camera.camera_base import CameraModel, Platform, Device
+from camera.camera_factory import CameraFactory
+from camera.metrics_collector import Collector, ValueType
 
 
 class TestImageLibraryCamera:

@@ -8,6 +8,7 @@ so callers can switch backends transparently.
 from __future__ import annotations
 
 import logging
+import traceback
 from typing import Any, Dict, List, Generator, Optional
 
 import numpy as np
@@ -18,16 +19,16 @@ from PIL import Image
 from models.SmolVLM.runtime_base import RuntimeBase
 from models.SmolVLM.model_config import ModelConfig
 from utils.onnx_utils import get_onnx_file_paths, setup_onnx_environment
-from config import get_config
+from src.utils.config import VLMChatConfig
 
-from utils.metrics_collector import Collector, null_collector
+from metrics.metrics_collector import Collector, null_collector
 
 logger = logging.getLogger(__name__)
 
 
 class OnnxBackend(RuntimeBase):
-    def __init__(self, config: ModelConfig, collector: Optional[Collector] = null_collector()):
-        self._config = config
+    def __init__(self, config: VLMChatConfig, collector: Optional[Collector] = null_collector()):
+        self._model_config = ModelConfig(config)
         self._use_onnx = True
         self._processor = None
         self._hf_config = None
@@ -37,20 +38,19 @@ class OnnxBackend(RuntimeBase):
         try:
             # Try to load processor/config for input preparation
             try:
-                self._hf_config = AutoConfig.from_pretrained(self._config.model_path)
-                self._processor = AutoProcessor.from_pretrained(self._config.model_path)
+                self._hf_config = AutoConfig.from_pretrained(self._model_config.model_path)
+                self._processor = AutoProcessor.from_pretrained(self._model_config.model_path)
                 self._tokenizer = self._processor.tokenizer
             except Exception:
                 # processor is optional for ONNX if inputs are made externally
                 self._hf_config = None
                 self._processor = None
 
-            global_config = get_config()
-            if not setup_onnx_environment(global_config):
+            if not setup_onnx_environment(config):
                 self._use_onnx = False
                 return
-
-            onnx_model_path = global_config.model.get_onnx_model_path()
+            self._collector.register_timeseries("smolVLM-onnx", ["vision-encoder","embeds", "generate"], ttl_seconds=600)
+            onnx_model_path = config.model.get_onnx_model_path()
             onnx_files = get_onnx_file_paths(onnx_model_path)
 
             self._vision_session = onnxruntime.InferenceSession(str(onnx_files["vision_encoder"]), providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'])
@@ -88,6 +88,7 @@ class OnnxBackend(RuntimeBase):
 
         except Exception as e:
             logger.warning(f"Failed to initialize OnnxBackend: {e}")
+            traceback.print_exc()
             self._use_onnx = False
 
     @property
@@ -102,7 +103,7 @@ class OnnxBackend(RuntimeBase):
         configured in the tokenizer vocabulary. Logs token information for
         troubleshooting tokenization issues.
         """
-        special_token = self._config.special_tokens["end_of_utterance"]
+        special_token = self._model_config.special_tokens["end_of_utterance"]
         is_in_vocab = special_token in self._tokenizer.vocab
         token_id = self._tokenizer.convert_tokens_to_ids(special_token)
 
@@ -134,7 +135,7 @@ class OnnxBackend(RuntimeBase):
             raise RuntimeError("ONNX backend not available")
 
         if max_new_tokens is None:
-            max_new_tokens = self._config.max_new_tokens
+            max_new_tokens = self._model_config.max_new_tokens
 
         batch_size = inputs['input_ids'].shape[0]
         past_key_values = self._initialize_past_key_values(batch_size)

@@ -18,7 +18,7 @@ import logging
 from typing import Optional, Dict
 
 from .metrics_collector import Collector, ValueType, UnknownTimeSeriesError, null_collector
-from .platform_adapter import get_adapter
+from ..utils.platform_adapter import get_adapter
 
 logger = logging.getLogger(__name__)
 

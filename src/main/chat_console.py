@@ -10,20 +10,23 @@ import sys
 from pathlib import Path
 import time
 
+from build.lib.utils.metrics_collector import Collector
+from src.utils.config import VLMChatConfig
+
 # Try relative imports when used as a package (normal case). If the module is
 # executed directly (python src/main/console_io.py) the package context may not
 # exist, so fall back to adding the repository's `src` directory to sys.path
 # and import the package-style modules.
 try:
     from .service_response import ServiceResponse as SR
-    from .chat_application import SmolVLMChatApplication
+    from .chat_services import VLMChatServices
 except Exception:
     # Compute src/ directory (two levels up from this file: src/main/console_io.py)
     src_root = Path(__file__).resolve().parents[1]
     if str(src_root) not in sys.path:
         sys.path.insert(0, str(src_root))
     from main.service_response import ServiceResponse as SR
-    from main.chat_application import SmolVLMChatApplication
+    from src.main.chat_services import VLMChatServices
 
 def input_text(prompt: str = "") -> str:
     try:
@@ -89,32 +92,32 @@ def process_command(app, user_input: str) -> bool:
         resp = app._service_load_url(url)
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/load_file '):
         path = user_input[len('/load_file '):].strip()
         resp = app._service_load_file(path)
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/clear_context'):
         resp = app._service_clear_context()
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/show_context'):
         resp = app._service_show_context()
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/context_stats'):
         resp = app._service_context_stats()
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/format'):
         parts = user_input.split(maxsplit=1)
@@ -122,13 +125,13 @@ def process_command(app, user_input: str) -> bool:
         resp = app._service_format(arg)
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.lower() == '/camera':
         resp = app._service_camera()
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/wait'):
         parts = user_input.split(maxsplit=1)
@@ -162,27 +165,27 @@ def process_command(app, user_input: str) -> bool:
         resp = app._service_metrics()
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     if user_input.startswith('/backend'):
         parts = user_input.split()
         resp = app._service_backend(parts)
         if resp.message:
             print_text(resp.message)
-        return resp.code == SR.Code.OK
+        return resp.code.value == SR.Code.OK.value
 
     print_text("Unknown command. Type /help for a list of commands.")
     return True
 
 
-def run_interactive_chat() -> None:
+def run_interactive_chat(config: VLMChatConfig, collector: Collector) -> None:
     """Interactive chat loop that drives the provided application instance.
 
     This function replaces the previous method on the application class and
     centralizes all I/O to the console_io module so it can be mocked in tests.
     """
 
-    app = SmolVLMChatApplication()
+    app = VLMChatServices(config, collector)
 
     print_text("=== SmolVLM Interactive Chat ===")
     print_help_message()

@@ -14,10 +14,10 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from utils.image_library_camera import ImageLibraryCamera
-from utils.camera_base import CameraModel, Platform, Device
-from utils.camera_factory import CameraFactory
-from utils.metrics_collector import Collector
+from camera.image_library_camera import ImageLibraryCamera
+from camera.camera_base import CameraModel, Platform, Device
+from camera.camera_factory import CameraFactory
+from camera.metrics_collector import Collector
 from PIL import Image
 import numpy as np
 

@@ -46,7 +46,7 @@ class IMX500Camera(BaseCamera):
         self._picam2.start(self._config, show_preview=False)
 
         # Create directory for captured images using configuration
-        from config import get_config
+        from src.utils.config import get_config
         config = get_config()
         self._save_path = config.paths.captured_images_dir
         if not os.path.exists(self._save_path):

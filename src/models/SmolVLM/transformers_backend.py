@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Generator, Optional
 
+from utils.config import VLMChatConfig
 import torch
 from transformers import AutoConfig, AutoProcessor, AutoModelForImageTextToText
 
@@ -14,18 +15,18 @@ from PIL import Image
 from models.SmolVLM.runtime_base import RuntimeBase
 from models.SmolVLM.model_config import ModelConfig
 
-from utils.metrics_collector import Collector, null_collector
+from metrics.metrics_collector import Collector, null_collector
 
 logger = logging.getLogger(__name__)
 
 
 class TransformersBackend(RuntimeBase):
-    def __init__(self, model_path: str, config: ModelConfig,  collector: Optional[Collector] = null_collector()):
-        self._model_path = model_path
-        self._config = config
+    def __init__(self, config: VLMChatConfig,  collector: Optional[Collector] = null_collector()):
+        self._config = ModelConfig(config)
+        self._model_path = config.model.model_path
         self._available = True
         self._collector = collector
-
+        collector.register_timeseries("smolVLM-transformers", ["initialize"], ttl_seconds=600)            
         try:
             with self._collector.duration_timer("SmolVLM-transformers", {"initialize" : None}):
                 self._model_config = AutoConfig.from_pretrained(self._model_path)

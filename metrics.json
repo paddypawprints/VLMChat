@@ -1,0 +1,50 @@
+[
+    {
+
+        "metrics": {
+            "timeseries": "smolVLM-inference",
+            "instruments": [
+                {
+                    "HistogramByAttributeInstrument": {
+                        "name": "operations",
+                        "binding_keys": []
+                    }
+                },
+                {
+                    "CounterInstrument": {
+                        "name": "requests_counter",
+                        "binding_keys": [
+                            "generate"
+                        ]
+                    }
+                }
+            ]
+        }
+    },
+    {
+        "metrics": {
+            "timeseries": "smolVLM-transformers",
+            "instruments": [
+                {
+                    "HistogramByAttributeInstrument": {
+                        "name": "his-transformers",
+                        "binding_keys": []
+                    }
+                }            
+            ]
+        }
+    },
+    {
+        "metrics": {
+            "timeseries": "smolVLM-onnx",
+            "instruments": [
+                {
+                    "HistogramByAttributeInstrument": {
+                        "name": "his-onnx",
+                        "binding_keys": []
+                    }
+                }            
+            ]
+        }
+    }
+]

@@ -51,8 +51,8 @@ Abstract base class architecture supporting multiple camera models and platforms
 
 **Usage:**
 ```python
-from utils.camera_factory import CameraFactory
-from utils.camera_base import CameraModel, Platform, Device
+from camera.camera_factory import CameraFactory
+from camera.camera_base import CameraModel, Platform, Device
 
 # Basic camera
 camera = CameraFactory.create_camera(CameraModel.IMX500)
@@ -138,7 +138,7 @@ if image:
 
 ### Camera Capture Integration
 ```python
-from utils.camera import IMX500ObjectDetection
+from camera.camera import IMX500ObjectDetection
 
 # Initialize and capture
 camera = IMX500ObjectDetection()

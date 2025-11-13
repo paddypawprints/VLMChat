@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent / "src"
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import VLMChatConfig, load_config, create_default_config_file, get_config
+from src.utils.config import VLMChatConfig, load_config, create_default_config_file, get_config
 
 
 def test_default_config():

@@ -1,5 +1,5 @@
 # Child class implementation
-import .detection_base
+import src.object_detector.detection_base as detection_base
 
 def load_names_from_config(config_path: Optional[Path] = None) -> List[str]:
     """

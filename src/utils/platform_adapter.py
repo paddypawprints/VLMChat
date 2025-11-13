@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 
 from .platform_detect import detect_platform
-from .camera_base import Platform
+from ..camera.camera_base import Platform
 
 logger = logging.getLogger(__name__)
 

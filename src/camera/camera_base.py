@@ -7,8 +7,11 @@ and common enums for camera models, platforms, and devices.
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from PIL import Image
+from PIL import Image  # type: ignore
 from typing import Tuple
+
+from metrics.metrics_collector import Collector
+from utils.platform_detect import Platform
 
 
 class CameraModel(Enum):
@@ -17,12 +20,7 @@ class CameraModel(Enum):
     IMX477 = "imx477"
     IMX219 = "imx219"
     IMAGE_LIBRARY = "image_library"
-
-
-class Platform(Enum):
-    """Supported platforms."""
-    RPI = "rpi"
-    JETSON = "jetson"
+    NONE = "none"
 
 
 class Device(Enum):
@@ -39,7 +37,7 @@ class BaseCamera(ABC):
     including model type, platform, and device identification.
     """
 
-    def __init__(self, model: CameraModel, platform: Platform, device: Device):
+    def __init__(self, collector: Collector, model: CameraModel, platform: Platform, device: Device):
         """
         Initialize base camera with hardware configuration.
 
@@ -51,6 +49,8 @@ class BaseCamera(ABC):
         self.model = model
         self.platform = platform
         self.device = device
+        self._collector = collector
+        self._collector.register_timeseries("camera", ["inputs","generate"], ttl_seconds=600)
 
     @abstractmethod
     def capture_single_image(self) -> Tuple[str, Image.Image]:

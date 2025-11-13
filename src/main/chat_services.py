@@ -10,18 +10,20 @@ handling, image processing, camera capture, and user interface components.
 import logging
 from PIL import Image
 
-from models.SmolVLM.smol_vlm_model import SmolVLMModel, smol_vlm_metrics_create
+from models.SmolVLM.smol_vlm_model import SmolVLMModel
 from models.SmolVLM.model_config import ModelConfig
 from utils.image_utils import load_image_from_url, load_image_from_file
 from src.prompt.prompt import Prompt
 from src.prompt.history_format import HistoryFormat
-#from utils.camera import IMX500ObjectDetection
-from utils.camera_factory import CameraFactory
-from utils.camera_base import BaseCamera, CameraModel, Platform
-from utils.metrics_collector import Session, CounterInstrument, HistogramByAttributeInstrument  
+#from camera.camera import IMX500ObjectDetection
+from camera.camera_factory import CameraFactory
+from camera.camera_base import BaseCamera
+from metrics.metrics_collector import Collector, Session 
+from metrics.instruments import AverageDurationInstrument, CounterInstrument, HistogramInstrument
 
 logger = logging.getLogger(__name__)
 
+from utils.config import VLMChatConfig
 from main.service_response import ServiceResponse
 from main.service_response import ServiceResponse as SR
 # ServiceResponse codes are defined in `src/main/service_response.py`.
@@ -35,15 +37,10 @@ from main.service_response import ServiceResponse as SR
 #   SR.Code.BACKEND_FAILED (6)    - Backend query or switch failed
 #   SR.Code.UNKNOWN_COMMAND (7)   - Unrecognized command
 
-class SmolVLMChatApplication:
+class VLMChatServices:
     """Main application class for SmolVLM chat interface."""
     
-    def __init__(self,
-                 model_path: str = None,
-                 use_onnx: bool = None,
-                 max_pairs: int = None,
-                 max_images: int = None,
-                 history_format: HistoryFormat = HistoryFormat.XML):
+    def __init__(self, config: VLMChatConfig, collector: Collector):
         """
         Initialize the chat application with all required components.
 
@@ -62,11 +59,6 @@ class SmolVLMChatApplication:
         Raises:
             Exception: If model loading or component initialization fails
         """
-        # Import here to avoid circular imports
-        from config import get_config
-
-        # Get global configuration
-        config = get_config()
 
         # Configure logging from global configuration
         logging.basicConfig(
@@ -75,74 +67,44 @@ class SmolVLMChatApplication:
         )
 
         # Use configuration values if parameters not provided
-        if model_path is None:
-            model_path = config.model.model_path
-        if use_onnx is None:
-            use_onnx = config.model.use_onnx
-        if max_pairs is None:
-            max_pairs = config.conversation.max_pairs
-        if max_images is None:
-            max_images = config.conversation.max_images
-            if history_format is None:
-                # Convert string to enum
-                from prompt.history_format import HistoryFormat as ConfigHistoryFormat
-                history_format = ConfigHistoryFormat(config.conversation.history_format.value)
+        model_path = config.model.model_path
+        use_onnx = config.model.use_onnx
+        max_pairs = config.conversation.max_pairs
+        max_images = config.conversation.max_images
 
-            # Initialize core model components
-            self._config = ModelConfig(model_path=model_path)
-            # Create a metrics collector and pass it into the model for telemetry
-            from utils.metrics_collector import Collector
-            self._collector = Collector()
-            self._collector.register_timeseries("camera", ["inputs","generate"], ttl_seconds=600)
-            smol_vlm_metrics_create(self._collector)
-            self._session = self._collector and self._collector and None
-            try:
-                from utils.metrics_collector import Session
-                self._session = Session(self._collector)
-            except Exception:
-                logger.exception("Failed to create metrics sessions")
+        # Convert string to enum
+        from prompt.history_format import HistoryFormat as ConfigHistoryFormat
+        history_format = ConfigHistoryFormat(config.conversation.history_format.value)
 
-            counter = CounterInstrument("requests_counter", ["generate"])
-            self._session.add_instrument(counter, "smolVLM-inference")
-            histogram = HistogramByAttributeInstrument("his")
-            self._session.add_instrument(histogram, "smolVLM-inference")
-            histogram_onnx = HistogramByAttributeInstrument("his-onnx")
-            self._session.add_instrument(histogram_onnx, "smolVLM-onnx")
+        # Initialize core model components
+        self._config = ModelConfig(config)
+        # Create a metrics collector and pass it into the model for telemetry
+        self._collector = collector
+        self._session = self._collector and self._collector and None
+#        self._session = Session(self._collector)
 
-            self._model = SmolVLMModel(self._config, use_onnx=use_onnx, collector=self._collector)
+        file_path = config.paths.metrics_file.expanduser().absolute()
+        if file_path.exists():
+            with open(file_path, 'r') as f:
+                json_data = f.read()
+                self._session = Session.load_instruments_from_json(self._collector, json_data)
+            logger.info(f"Loaded metrics instruments from {file_path}") 
+        else:
+            logger.warning(f"Metrics file not found at {file_path}, starting new session")  
 
-            # Create an application-level session and a model-level session
- 
-            # Initialize conversation management
-            self._prompt = Prompt(
-                max_pairs=max_pairs,
-                max_images=max_images,
-                history_format=history_format
-            )
+        self._model = SmolVLMModel(config, collector=self._collector)
+
+        # Initialize conversation management
+        self._prompt = Prompt(
+            max_pairs=max_pairs,
+            max_images=max_images,
+            history_format=history_format
+        )
 
         # Initialize hardware interfaces
-        # Resolve platform from loaded configuration (prefer explicit runtime_platform)
-        detected_platform = None
-        try:
-            detected_platform = config.get_runtime_platform()
-        except Exception:
-            detected_platform = None
+        logger.info(f"Using platform for camera creation: {config.platform}")
 
-        # If detection returned None, fall back to Platform.RPI
-        resolved_platform = detected_platform or Platform.RPI
-
-        logger.info(f"Using platform for camera creation: {resolved_platform}")
-
-        # Create camera for the resolved platform. Do not pass a model so the
-        # CameraFactory will select the platform-appropriate default unless an
-        # explicit override is provided elsewhere.
-        default_map = CameraFactory.get_default_camera_for_platform(resolved_platform)
-        logger.info(f"CameraFactory default for {resolved_platform}: {default_map}")
-
-        self._camera = CameraFactory.create_camera(
-            platform=resolved_platform,
-            # with_detection left unspecified so factory uses its default
-        )
+        self._camera = CameraFactory.create_camera(config, collector)
         
         logger.info("SmolVLM Chat Application initialized successfully")
 
@@ -181,17 +143,17 @@ class SmolVLMChatApplication:
     def _service_load_url(self, url: str) -> ServiceResponse:
         image = load_image_from_url(url)
         if image:
-            self._prompt.history.set_current_image(image)
-            self._prompt.history.clear_history()
-            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully. Conversation history cleared for new image.")
+            self._prompt.current_image = image
+            #self._prompt.history.clear_history()
+            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully.")
         return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Failed to load image.")
 
     def _service_load_file(self, path: str) -> ServiceResponse:
         image = load_image_from_file(path)
         if image:
-            self._prompt.history.set_current_image(image)
-            self._prompt.history.clear_history()
-            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully. Conversation history cleared for new image.")
+            self._prompt.current_image = image
+            #self._prompt.history.clear_history()
+            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully.")
         return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Failed to load image.")
 
     def _service_clear_context(self) -> ServiceResponse:
@@ -217,7 +179,7 @@ class SmolVLMChatApplication:
             return ServiceResponse(ServiceResponse.Code.INVALID_FORMAT, "Invalid format. Use: xml or minimal")
 
     def _service_camera(self) -> ServiceResponse:
-        if self.capture_from_camera():
+        if self._camera.is_available() and self.capture_from_camera():
             return ServiceResponse(ServiceResponse.Code.OK, "Image captured and ready for use in conversation")
         return ServiceResponse(ServiceResponse.Code.CAMERA_FAILED, "Failed to capture image")
 
@@ -333,39 +295,3 @@ class SmolVLMChatApplication:
             logger.error(f"Error during generation: {e}")
             return f"Error generating response: {e}"
     
-    def _print_help_message(self) -> None:
-        """
-        Display available commands and their descriptions.
-
-        Prints a formatted list of all available slash commands that users can
-        use to interact with the chat application, including image loading,
-        context management, and application control commands.
-        """
-        logger.info("Available Commands:")
-        logger.info("  /load_url <url>     - Load image from URL for conversation")
-        logger.info("  /load_file <path>   - Load image from local file path")
-        logger.info("  /clear_context      - Clear conversation history")
-        logger.info("  /show_context       - Display current conversation history")
-        logger.info("  /context_stats      - Show context buffer statistics")
-        logger.info("  /format <format>    - Change history format (xml|minimal|nohistory)")
-        logger.info("  /camera             - Capture image from camera")
-        logger.info("  /help               - Show this help message")
-        logger.info("  /quit               - Exit the application")
-
-    def run_interactive_chat(self) -> None:
-        """
-        Run the interactive chat loop.
-
-        Starts the main user interface loop that handles user input, processes
-        commands and queries, and manages the conversation flow. Continues until
-        the user exits with /quit or interrupts with Ctrl+C.
-
-        Raises:
-            KeyboardInterrupt: Handled gracefully to allow clean exit
-            Exception: Other exceptions are logged but don't crash the application
-        """
-        # NOTE: The interactive loop is owned by the console_io module so this
-        # class intentionally does not import or depend on console_io. To run
-        # the interactive interface, call `main.console_io.run_interactive_chat()`
-        # which will instantiate and use this application class.
-        raise RuntimeError("Interactive loop is owned by console_io; call run_interactive_chat() from main.console_io")
