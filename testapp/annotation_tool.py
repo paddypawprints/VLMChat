@@ -5,7 +5,7 @@ This provides a GUI for testing VLMChat pipelines with scenario files.
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from typing import List, Dict, Any, Optional
 from PIL import Image, ImageTk, ImageDraw
 import yaml
@@ -361,7 +361,7 @@ class AnnotationTool:
     def add_prompt(self) -> None:
         """Add a new prompt."""
         # Simple dialog for new prompt name
-        name = tk.simpledialog.askstring("Add Prompt", "Enter prompt name:")
+        name = simpledialog.askstring("Add Prompt", "Enter prompt name:")
         if name:
             if name in self.current_prompts:
                 messagebox.showwarning("Duplicate", "Prompt name already exists")
@@ -526,11 +526,6 @@ class AnnotationTool:
 def main():
     """Main entry point for the annotation tool."""
     root = tk.Tk()
-    
-    # Import simpledialog for add_prompt functionality
-    import tkinter.simpledialog
-    tk.simpledialog = tkinter.simpledialog
-    
     app = AnnotationTool(root)
     root.mainloop()
 

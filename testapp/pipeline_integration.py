@@ -9,7 +9,8 @@ import sys
 import os
 from typing import List, Dict, Any, Optional
 
-# Add parent directory to path if needed
+# Add project root to path to import from src/
+# TODO: Use proper package installation or relative imports when testapp is integrated into main package
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)

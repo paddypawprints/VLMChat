@@ -2,12 +2,7 @@
 Test script for scenario parser.
 """
 
-import sys
 import os
-
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from testapp.scenario_parser import ScenarioParser, parse_scenario_file
 
 

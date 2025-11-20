@@ -4,12 +4,7 @@ Test script for the annotation tool components.
 This tests the core logic without requiring a display or tkinter.
 """
 
-import sys
 import os
-
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from testapp.mock_data import get_mock_detections, get_mock_prompts, get_mock_scenario
 
 
