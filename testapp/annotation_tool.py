@@ -13,6 +13,16 @@ import os
 
 from .mock_data import get_mock_detections, get_mock_prompts, get_mock_scenario, MockDetection
 
+# Try to import pipeline integration (graceful fallback to mock mode)
+try:
+    from .pipeline_integration import PipelineAdapter
+    from .scenario_parser import ScenarioParser
+    PIPELINE_AVAILABLE = True
+except ImportError as e:
+    PIPELINE_AVAILABLE = False
+    PipelineAdapter = None
+    ScenarioParser = None
+
 
 class AnnotationTool:
     """Main application window for image annotation."""
@@ -24,10 +34,24 @@ class AnnotationTool:
         
         # Application state
         self.current_scenario: Optional[Dict[str, Any]] = None
+        self.current_scenario_id: Optional[str] = None
+        self.scenario_parser: Optional[Any] = None  # ScenarioParser instance
         self.current_detections: List[MockDetection] = []
         self.current_prompts: Dict[str, str] = {}
         self.current_image: Optional[Image.Image] = None
         self.detection_depth = 2  # Default depth for detection tree
+        
+        # Pipeline integration (if available)
+        self.pipeline_adapter = None
+        if PIPELINE_AVAILABLE:
+            try:
+                self.pipeline_adapter = PipelineAdapter()
+                self.status_mode = "Pipeline Mode"
+            except Exception as e:
+                self.pipeline_adapter = None
+                self.status_mode = f"Mock Mode (Pipeline error: {e})"
+        else:
+            self.status_mode = "Mock Mode (Pipeline not available)"
         
         # UI Components
         self.setup_ui()
@@ -199,7 +223,7 @@ class AnnotationTool:
         self.update_detection_tree()
         self.update_prompt_list()
         self.display_image()
-        self.status_label.config(text="Mock data loaded")
+        self.status_label.config(text=f"Mock data loaded | {self.status_mode}")
     
     def _draw_detection_recursive(self, draw: ImageDraw.Draw, detection: MockDetection, 
                                    color: str = "red", depth: int = 0) -> None:
@@ -376,12 +400,51 @@ class AnnotationTool:
             with open(filename, 'r') as f:
                 scenario_data = yaml.safe_load(f)
             
-            # TODO: Parse scenario and load it into the application
-            self.current_scenario = scenario_data
-            self.status_label.config(text=f"Loaded scenario: {os.path.basename(filename)}")
-            messagebox.showinfo("Success", "Scenario loaded (full integration pending)")
+            # Parse scenario if parser available
+            if ScenarioParser:
+                self.scenario_parser = ScenarioParser(scenario_data)
+                scenario_ids = self.scenario_parser.get_all_scenario_ids()
+                
+                # If multiple scenarios, ask which one to load
+                if len(scenario_ids) > 1:
+                    # For now, load the first one
+                    # TODO: Add scenario selector dialog
+                    scenario_id = scenario_ids[0]
+                    self.current_scenario_id = scenario_id
+                    self.current_scenario = self.scenario_parser.get_scenario_by_id(scenario_id)
+                    
+                    # Extract prompts from scenario
+                    self.current_prompts = self.scenario_parser.extract_prompts(self.current_scenario)
+                    self.update_prompt_list()
+                    
+                    messagebox.showinfo("Scenario Loaded", 
+                                      f"Loaded scenario: {scenario_id}\n"
+                                      f"({len(scenario_ids)} scenarios in file)\n"
+                                      f"Prompts: {len(self.current_prompts)}")
+                else:
+                    # Single scenario
+                    self.current_scenario_id = scenario_ids[0] if scenario_ids else None
+                    self.current_scenario = self.scenario_parser.get_scenario_by_id(self.current_scenario_id) if self.current_scenario_id else None
+                    
+                    if self.current_scenario:
+                        self.current_prompts = self.scenario_parser.extract_prompts(self.current_scenario)
+                        self.update_prompt_list()
+                        
+                        messagebox.showinfo("Scenario Loaded", 
+                                          f"Loaded scenario: {self.current_scenario_id}\n"
+                                          f"Prompts: {len(self.current_prompts)}")
+            else:
+                # Fallback: just store the raw data
+                self.current_scenario = scenario_data
+                messagebox.showinfo("Scenario Loaded", 
+                                  "Scenario loaded (parser not available)")
+            
+            self.status_label.config(text=f"Loaded: {os.path.basename(filename)} | {self.status_mode}")
+            
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load scenario: {e}")
+            import traceback
+            traceback.print_exc()
     
     def load_image(self) -> None:
         """Load an image file."""
@@ -416,15 +479,23 @@ class AnnotationTool:
             return
         
         try:
-            # Update scenario with current prompts
-            # TODO: More sophisticated scenario update logic
-            with open(filename, 'w') as f:
-                yaml.dump(self.current_scenario, f, default_flow_style=False)
+            # Update scenario with current prompts if parser available
+            if self.scenario_parser and self.current_scenario_id:
+                self.scenario_parser.update_scenario_prompts(self.current_scenario_id, 
+                                                            self.current_prompts)
+                scenario_data = self.scenario_parser.to_dict()
+            else:
+                scenario_data = self.current_scenario
             
-            self.status_label.config(text=f"Saved scenario: {os.path.basename(filename)}")
-            messagebox.showinfo("Success", "Scenario saved")
+            with open(filename, 'w') as f:
+                yaml.dump(scenario_data, f, default_flow_style=False, sort_keys=False)
+            
+            self.status_label.config(text=f"Saved: {os.path.basename(filename)} | {self.status_mode}")
+            messagebox.showinfo("Success", "Scenario saved with updated prompts")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save scenario: {e}")
+            import traceback
+            traceback.print_exc()
     
     def run_pipeline(self) -> None:
         """Run the pipeline with current configuration."""
