@@ -50,7 +50,8 @@ class BaseCamera(ABC):
         self.platform = platform
         self.device = device
         self._collector = collector
-        self._collector.register_timeseries("camera", ["inputs","generate"], ttl_seconds=600)
+        if self._collector:
+            self._collector.register_timeseries("camera", ["inputs","generate"], ttl_seconds=600)
 
     @abstractmethod
     def capture_single_image(self) -> Tuple[str, Image.Image]:

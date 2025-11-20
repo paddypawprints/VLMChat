@@ -7,36 +7,11 @@ from PIL import Image
 import numpy as np
 
 # --- Dependencies for YOLO implementation ---
-try:
-    from ultralytics import YOLO
-    from ultralytics.engine.results import Boxes
-except ImportError:
-    print("Error: 'ultralytics' package not found.")
-    print("Please install it: pip install ultralytics")
-    YOLO = None # type: ignore
-    Boxes = None # type: ignore
-# --- End Dependencies ---
+from ultralytics import YOLO
+from ultralytics.engine.results import Boxes
 
 # --- Import Base Classes ---
-try:
-    from detection_base import ObjectDetector, Detection
-except ImportError:
-    print("Error: Could not import from object_detector_base.py")
-    print("Make sure object_detector_base.py is in the same directory.")
-    # Define dummy classes for the script to be parsable
-    class ObjectDetector: # type: ignore
-        def __init__(self, source: Optional['ObjectDetector'] = None):
-            self._source = source
-        def start(self):
-            if self._source: self._source.start()
-        def stop(self):
-            if self._source: self._source.stop()
-        def readiness(self) -> bool:
-            return self._source.readiness() if self._source else False
-        def get_labels(self) -> List[str]:
-            return self._source.get_labels() if self._source else []
-    class Detection: pass # type: ignore
-# --- End Import Base Classes ---
+from .detection_base import ObjectDetector, Detection
 
 
 # --- YOLOv8 Implementation ---
@@ -70,11 +45,14 @@ class YoloV8Detector(ObjectDetector):
         self._labels: List[str] = []
         self._ready: bool = False
 
-    def start(self) -> None:
+    def start(self, audit: bool = False) -> None:
         """
         Loads the YOLOv8 model and prepares it for inference.
+        
+        Args:
+            audit: Optional audit flag passed to source detector
         """
-        super().start() # Start the source, if any
+        super().start(audit) # Start the source, if any
         
         if self._ready: # Already started
             return
@@ -147,28 +125,30 @@ class YoloV8Detector(ObjectDetector):
             results = self.model(image, device='cpu', verbose=False)
             
             # Check for results and process them
-            if results and results[0] and results[0].boxes:
-                boxes: Boxes = results[0].boxes
-                
-                for box in boxes:
-                    # Extract bounding box
-                    xyxy = box.xyxy[0].cpu().numpy().astype(int)
-                    box_tuple: Tuple[int, int, int, int] = (xyxy[0], xyxy[1], xyxy[2], xyxy[3])
-                    
-                    # Extract confidence
-                    confidence = box.conf[0].cpu().item()
-                    
-                    # Extract class ID and name
-                    class_id = int(box.cls[0].cpu().item())
-                    class_name = self.model.names[class_id] if self.model.names else f"class_{class_id}"
-                    
-                    # Create the Detection object
-                    detection = Detection(
-                        box=box_tuple,
-                        object_category=class_name,
-                        conf=confidence
-                    )
-                    detections.append(detection) # Add to the list
+            if results and results[0]:
+                if hasattr(results[0], 'boxes'):
+                    boxes = results[0].boxes
+                    if boxes is not None and len(boxes) > 0:
+                        
+                        for box in boxes:
+                            # Extract bounding box
+                            xyxy = box.xyxy[0].cpu().numpy().astype(int)
+                            box_tuple: Tuple[int, int, int, int] = (xyxy[0], xyxy[1], xyxy[2], xyxy[3])
+                            
+                            # Extract confidence
+                            confidence = box.conf[0].cpu().item()
+                            
+                            # Extract class ID and name
+                            class_id = int(box.cls[0].cpu().item())
+                            class_name = self.model.names[class_id] if self.model.names else f"class_{class_id}"
+                            
+                            # Create the Detection object
+                            detection = Detection(
+                                box=box_tuple,
+                                object_category=class_name,
+                                conf=confidence
+                            )
+                            detections.append(detection) # Add to the list
                     
         except Exception as e:
             print(f"Error during YOLOv8 detection: {e}")

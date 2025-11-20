@@ -334,7 +334,15 @@ class Collector:
     def register_timeseries(self, name: str, registered_attribute_keys: Optional[List[str]] = None, max_count: Optional[int] = None, ttl_seconds: Optional[float] = None) -> None:
         with self._lock:
             if name in self._ts_map:
-                raise KeyError(f"TimeSeries already registered: {name}")
+                # Check if definition matches - if so, silently ignore (idempotent)
+                existing = self._ts_map[name]
+                new_keys = set(registered_attribute_keys or [])
+                if (existing.registered_attribute_keys == new_keys and 
+                    existing.max_count == max_count and 
+                    existing.ttl_seconds == ttl_seconds):
+                    return  # Same definition, ignore
+                else:
+                    raise KeyError(f"TimeSeries '{name}' already registered with different definition")
             ts = TimeSeries(name, set(registered_attribute_keys or []), max_count, ttl_seconds)
             self._ts_map[name] = ts
 

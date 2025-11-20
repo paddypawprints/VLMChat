@@ -17,7 +17,7 @@ import math # For batching
 
 # --- Import from project ---
 from .coco_categories import CocoCategory
-from models.MobileClip.clip_model import CLIPModel
+from models.MobileClip.clip_model import CLIPModel, CLIPRuntimeBase
 
 logger = logging.getLogger(__name__)
 

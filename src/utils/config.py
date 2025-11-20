@@ -205,6 +205,51 @@ class CameraConfig(BaseModel):
     )
 
 
+class ClustererConfig(BaseModel):
+    """Object clusterer configuration parameters."""
+    model_config = ConfigDict(extra='forbid')
+
+    max_clusters: int = Field(
+        default=4,
+        ge=1,
+        le=100,
+        description="Maximum number of clusters to create"
+    )
+    merge_threshold: float = Field(
+        default=1.5,
+        gt=0.0,
+        description="Stop merging if best cost is above this threshold"
+    )
+    proximity_weight: float = Field(
+        default=1.2,
+        ge=0.0,
+        description="Weight for spatial packing efficiency cost"
+    )
+    size_weight: float = Field(
+        default=1.2,
+        ge=0.0,
+        description="Weight for size difference cost"
+    )
+    semantic_pair_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Weight for semantic pair similarity cost"
+    )
+    semantic_single_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Weight for semantic single vs prompts cost"
+    )
+    user_prompts: list[str] = Field(
+        default=[
+            "a group of people riding horses",
+            "people on horseback",
+            "riders on a trail"
+        ],
+        description="User prompts for semantic clustering"
+    )
+
+
 class VLMChatConfig(BaseSettings):
     """
 Main application configuration.
@@ -226,6 +271,7 @@ VLMCHAT_PLATFORM=rpi
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     camera: CameraConfig = Field(default_factory=CameraConfig)
+    clusterer: ClustererConfig = Field(default_factory=ClustererConfig)
 
     platform: Platform = Field(
         default_factory=detect_platform,

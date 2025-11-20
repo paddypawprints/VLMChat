@@ -15,6 +15,7 @@ import time # For __main__
 import requests # For __main__
 from io import BytesIO # For __main__
 import logging # For __main__
+import torch
 
 # --- Base Detector Classes (Imported) ---
 from .detection_base import ObjectDetector, Detection
@@ -78,13 +79,15 @@ class ClusterAuditLog:
             "total_cost": total_cost
         })
 
-    def log_merge(self, a: _ClusterNode, b: _ClusterNode, new_node: _ClusterNode, cost: float):
+    def log_merge(self, a: _ClusterNode, b: _ClusterNode, new_node: _ClusterNode, cost: float, component_costs: Dict[str, float] = None, weights: Dict[str, float] = None):
         """Logs a successful merge operation."""
         self.merges.append({
             "merged_a_id": a.detection.id,
             "merged_b_id": b.detection.id,
             "new_cluster_id": new_node.detection.id,
-            "cost": cost
+            "cost": cost,
+            "components": component_costs or {},
+            "weights": weights or {}
         })
         
     def log_final_clusters(self, clusters: List[_ClusterNode]):
@@ -103,10 +106,34 @@ class ClusterAuditLog:
         if not self.merges:
             log_str += "No merges occurred.\n"
         for i, merge in enumerate(self.merges):
+            # Compact format: Merge N: A+B->C (cost)
             log_str += (
-                f"Merge {i+1}: Merged [ID {merge['merged_a_id']}] and [ID {merge['merged_b_id']}] "
-                f"into [ID {merge['new_cluster_id']}] (Cost: {merge['cost']:.4f})\n"
+                f"Merge {i+1}: {merge['merged_a_id']}+{merge['merged_b_id']}->{merge['new_cluster_id']} "
+                f"({merge['cost']:.4f})\n"
             )
+            
+            # Display component costs if available
+            if merge.get('components'):
+                components = merge['components']
+                weights = merge.get('weights', {})
+                
+                # Proximity
+                if 'prox' in components:
+                    prox_val = components['prox']
+                    weighted_val = prox_val * weights.get('prox', 1.0) if 'prox' in weights else prox_val
+                    log_str += f"         proximity={prox_val:.4f}, {weighted_val:.4f}\n"
+                
+                # Size
+                if 'size' in components:
+                    size_val = components['size']
+                    weighted_val = size_val * weights.get('size', 1.0) if 'size' in weights else size_val
+                    log_str += f"         size={size_val:.4f}, {weighted_val:.4f}\n"
+                
+                # Semantic pair (exclude semantic_single)
+                if 'sem_pair' in components:
+                    sem_val = components['sem_pair']
+                    weighted_val = sem_val * weights.get('sem_pair', 1.0) if 'sem_pair' in weights else sem_val
+                    log_str += f"         semantic_pair={sem_val:.4f}, {weighted_val:.4f}\n"
 
         log_str += "\n=== Final Clusters ===\n"
         log_str += f"Total: {self.final_count}\n"
@@ -133,7 +160,9 @@ class ObjectClusterer(ObjectDetector):
                  merge_threshold: float = 1.5, # Updated default
                  proximity_weight: float = 1.0,
                  size_weight: float = 0.5,
-                 semantic_weights: Dict[str, float] = {"pair": 1.0}
+                 semantic_weights: Dict[str, float] = {"pair": 1.0},
+                 filter_prompts: Optional[List[str]] = None,
+                 filter_threshold: float = 0.20
                  ):
         """
         Initializes the clusterer.
@@ -146,6 +175,10 @@ class ObjectClusterer(ObjectDetector):
             proximity_weight: Weight for the proximity cost.
             size_weight: Weight for the size cost.
             semantic_weights: Dict of weights for semantic algorithms.
+            filter_prompts: Optional list of prompt strings. If provided, only detections
+                           whose categories are semantically similar to these prompts will
+                           be clustered. Others are filtered out.
+            filter_threshold: Minimum similarity score (0-1) for a detection to pass the filter.
         """
         super().__init__(source)
         self.semantic_provider = semantic_provider
@@ -155,6 +188,11 @@ class ObjectClusterer(ObjectDetector):
         self.w_prox = proximity_weight
         self.w_size = size_weight
         self.semantic_weights = semantic_weights
+        
+        # Filter settings
+        self.filter_prompts = filter_prompts
+        self.filter_threshold = filter_threshold
+        self._filter_embeddings = None  # Will be computed on start
         
         self._ready = False
         self._audit_enabled = False
@@ -171,8 +209,81 @@ class ObjectClusterer(ObjectDetector):
         super().start(audit) # Pass audit flag to source
         self.semantic_provider.start()
         self._audit_enabled = audit
+        
+        # Pre-compute filter prompt embeddings if filtering is enabled
+        if self.filter_prompts:
+            self._compute_filter_embeddings()
+            print(f"ObjectClusterer: Filtering enabled with {len(self.filter_prompts)} prompts (threshold: {self.filter_threshold})")
+        
         self._ready = True
         print(f"ObjectClusterer: Started (Audit Enabled: {self._audit_enabled}).")
+
+    def _compute_filter_embeddings(self) -> None:
+        """Computes and caches embeddings for filter prompts."""
+        if not hasattr(self.semantic_provider, '_clip_model'):
+            print("⚠️  Warning: SemanticProvider doesn't have CLIP model, filtering disabled")
+            self.filter_prompts = None
+            return
+            
+        clip_model = self.semantic_provider._clip_model
+        
+        # Get the CLIP runtime for encoding
+        try:
+            runtime = clip_model._runtime_as_clip()
+        except:
+            print("⚠️  Warning: Could not access CLIP runtime, filtering disabled")
+            self.filter_prompts = None
+            return
+        
+        self._filter_embeddings = {}
+        
+        for prompt in self.filter_prompts:
+            embedding = runtime.encode_text([prompt])[0]
+            self._filter_embeddings[prompt] = embedding
+            
+        print(f"  Computed embeddings for {len(self._filter_embeddings)} filter prompts")
+
+    def _should_cluster_detection(self, detection: Detection) -> bool:
+        """
+        Checks if a detection should be included in clustering based on filter prompts.
+        
+        Args:
+            detection: The detection to check
+            
+        Returns:
+            True if detection should be clustered, False if it should be filtered out
+        """
+        if not self.filter_prompts or not self._filter_embeddings:
+            return True  # No filtering, include all
+            
+        # Get category embedding from semantic provider
+        category = detection.object_category
+        
+        # Get the CLIP runtime from semantic provider
+        if not hasattr(self.semantic_provider, '_clip_model'):
+            return True  # Can't filter without model
+            
+        clip_model = self.semantic_provider._clip_model
+        
+        try:
+            runtime = clip_model._runtime_as_clip()
+        except:
+            return True  # Can't filter without runtime
+        
+        # Encode the category
+        category_embedding = runtime.encode_text([category])[0]
+        
+        # Check similarity against all filter prompts
+        for prompt, prompt_embedding in self._filter_embeddings.items():
+            similarity = float(torch.nn.functional.cosine_similarity(
+                category_embedding.unsqueeze(0),
+                prompt_embedding.unsqueeze(0)
+            ))
+            
+            if similarity >= self.filter_threshold:
+                return True  # Matches at least one filter prompt
+                
+        return False  # Doesn't match any filter prompts
 
 
     def stop(self) -> None:
@@ -275,10 +386,11 @@ class ObjectClusterer(ObjectDetector):
         return (cost_sum / pair_count) if pair_count > 0 else 1.0
 
 
-    def _find_best_merge_pair(self, nodes: List[_ClusterNode], audit_log: ClusterAuditLog) -> Tuple[float, Optional[Tuple[int, int]]]:
+    def _find_best_merge_pair(self, nodes: List[_ClusterNode], audit_log: ClusterAuditLog) -> Tuple[float, Optional[Tuple[int, int]], Dict[str, float]]:
         """Finds the pair of nodes with the lowest merge cost."""
         min_cost = float('inf')
         best_pair = None
+        best_components = {}
         
         for i in range(len(nodes)):
             for j in range(i + 1, len(nodes)):
@@ -290,8 +402,9 @@ class ObjectClusterer(ObjectDetector):
                 if total_cost < min_cost:
                     min_cost = total_cost
                     best_pair = (i, j)
+                    best_components = component_costs
                     
-        return min_cost, best_pair
+        return min_cost, best_pair, best_components
 
     def _merge_nodes(self, a: _ClusterNode, b: _ClusterNode, merge_cost: float) -> _ClusterNode:
         """Merges two cluster nodes into a new one."""
@@ -330,6 +443,25 @@ class ObjectClusterer(ObjectDetector):
 
         if not detections:
             return []
+        
+        # Apply filter if configured
+        if self.filter_prompts:
+            filtered_detections = []
+            filtered_out_count = 0
+            
+            for det in detections:
+                if self._should_cluster_detection(det):
+                    filtered_detections.append(det)
+                else:
+                    filtered_out_count += 1
+            
+            if filtered_out_count > 0:
+                print(f"  Clusterer filtered out {filtered_out_count}/{len(detections)} detections (kept {len(filtered_detections)})")
+            
+            detections = filtered_detections
+            
+            if not detections:
+                return []
             
         # 1. Initialize nodes from base detections
         nodes: List[_ClusterNode] = []
@@ -353,7 +485,7 @@ class ObjectClusterer(ObjectDetector):
             if len(nodes) <= 1: # Stop if only one cluster remains
                 break
 
-            min_cost, best_pair = self._find_best_merge_pair(nodes, self._last_audit_log)
+            min_cost, best_pair, best_components = self._find_best_merge_pair(nodes, self._last_audit_log)
             
             # This is now the only stop condition
             if min_cost > self.merge_threshold or best_pair is None:
@@ -367,7 +499,19 @@ class ObjectClusterer(ObjectDetector):
             new_node = self._merge_nodes(node_a, node_b, min_cost)
             
             if self._audit_enabled:
-                self._last_audit_log.log_merge(node_a, node_b, new_node, min_cost)
+                # Build weights dict for audit
+                weights_dict = {
+                    'prox': self.w_prox,
+                    'size': self.w_size
+                }
+                # Add semantic weights
+                for name, weight in self.semantic_weights.items():
+                    if name == "pair":
+                        weights_dict['sem_pair'] = weight
+                    elif name == "single":
+                        weights_dict['sem_single'] = weight
+                
+                self._last_audit_log.log_merge(node_a, node_b, new_node, min_cost, best_components, weights_dict)
             
             nodes.pop(max(idx_a, idx_b))
             nodes.pop(min(idx_a, idx_b))

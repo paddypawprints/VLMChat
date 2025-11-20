@@ -4,13 +4,29 @@
     "max_new_tokens": 1024,
     "eos_token_id": 198,
     "use_onnx": true,
-    "onnx_base_path": "~/onnx"
+    "onnx_base_path": "~/onnx",
+    "clip_model_name": "MobileCLIP2-S0",
+    "clip_pretrained_path": "src/models/MobileClip/ml-mobileclip/mobileclip2_s0.pt",
+    "clip_model_kwargs": {"image_mean": [0, 0, 0], "image_std": [1, 1, 1]}
   },
   "conversation": {
     "max_pairs": 10,
     "max_images": 1,
     "history_format": "xml",
     "word_limit": 15
+  },
+  "clusterer": {
+    "max_clusters": 4,
+    "merge_threshold": 1.5,
+    "proximity_weight": 1.0,
+    "size_weight": 0.5,
+    "semantic_pair_weight": 1.0,
+    "semantic_single_weight": 0.5,
+    "user_prompts": [
+      "a group of people riding horses",
+      "people on horseback",
+      "riders on a trail"
+    ]
   },
   "logging": {
     "level": "INFO",
@@ -21,5 +37,5 @@
     "coco_labels_path": "assets/coco_labels.txt",
     "captured_images_dir": "captured_images"
   },
-  "runtime_platform": null
+  "platform": "mac"
 }
