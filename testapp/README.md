@@ -152,6 +152,10 @@ scenarios:
 
 - `annotation_tool.py` - Main GUI application
 - `mock_data.py` - Mock data structures for testing
+- `pipeline_integration.py` - Pipeline adapter for VLMChat integration
+- `scenario_parser.py` - YAML scenario file parser
+- `test_components.py` - Component tests (no GUI)
+- `test_scenario_parser.py` - Scenario parser tests
 - `__init__.py` - Package initialization
 
 ### UI Components
@@ -163,7 +167,7 @@ scenarios:
 
 ## Development
 
-### Phase 1: UI Design (Complete)
+### Phase 1: UI Design ✅ Complete
 - ✅ Basic UI layout with three panels
 - ✅ Mock data structures
 - ✅ Image display with detection overlays
@@ -171,14 +175,41 @@ scenarios:
 - ✅ Prompt list and editor
 - ✅ Scenario load/save (basic)
 
-### Phase 2: Integration (Next Steps)
-- [ ] Import VLMChat pipeline components
-- [ ] Load real Detection objects from pipeline
-- [ ] Parse scenario files into pipeline configuration
-- [ ] Run pipeline on button click
-- [ ] Update detection display from pipeline results
-- [ ] Save updated prompts back to scenario
+### Phase 2: Integration (In Progress)
+- ✅ Scenario YAML parser
+- ✅ Prompt extraction and update
+- ✅ Cluster and entity extraction
+- ✅ Pipeline adapter structure
+- ✅ Graceful fallback to mock mode
+- [ ] Complete pipeline integration (run actual pipelines)
+- [ ] Display real Detection objects from pipeline
+- [ ] Generate images from scenario descriptions
 - [ ] Interactive detection result positioning
+
+### Pipeline Integration Status
+
+The tool includes a `PipelineAdapter` and `ScenarioParser` that provide:
+
+**Currently Working:**
+- Load scenario YAML files
+- Parse scenario structure (entities, clusters, prompts)
+- Extract prompts and display in UI
+- Edit prompts and save back to scenario
+- Graceful fallback to mock mode if pipeline unavailable
+
+**To Be Implemented:**
+- Create pipeline from scenario description
+- Generate test images matching scenario specs
+- Run detection pipeline on images
+- Convert pipeline Detection objects to UI format
+- Re-run pipeline when prompts change
+- Display actual pipeline results in tree
+
+The architecture is in place for full integration. The next step is to:
+1. Implement scenario → pipeline configuration mapping
+2. Connect to image generation or use test images
+3. Run pipeline and capture Detection objects
+4. Update UI to display real detections
 
 ## Testing
 
