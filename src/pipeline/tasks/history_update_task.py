@@ -4,10 +4,11 @@ History update task for pipeline integration.
 Updates conversation history with the latest prompt and response (sink task).
 """
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 from ...prompt.history import History
 
 
+@register_task('history_update')
 class HistoryUpdateTask(BaseTask):
     """
     Pipeline sink task that updates conversation history.

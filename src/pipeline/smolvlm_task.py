@@ -7,11 +7,12 @@ Wraps a SmolVLM model instance and runs inference on image + prompt.
 from typing import Optional
 from PIL import Image
 
-from .task_base import BaseTask, Context, ContextDataType
+from .task_base import BaseTask, Context, ContextDataType, register_task
 from ..models.SmolVLM.smol_vlm_model import SmolVLMModel
 from ..prompt.prompt import Prompt
 
 
+@register_task('smolvlm')
 class SmolVLMTask(BaseTask):
     """
     Pipeline task adapter for SmolVLM inference.

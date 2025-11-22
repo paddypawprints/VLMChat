@@ -10,13 +10,14 @@ and which are well-separated.
 
 import numpy as np
 import logging
-from typing import List, Dict, Optional
+from typing import List, Tuple, Dict
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('prompt_similarity')
 class PromptSimilarityCompareTask(BaseTask):
     """
     Analyzes similarity between prompt embeddings.
@@ -226,16 +227,16 @@ class PromptSimilarityCompareTask(BaseTask):
         
         return context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure task from parameters.
         
         Args:
-            params: Configuration dict with optional keys:
+            **kwargs: Configuration parameters with optional keys:
                 - threshold: float similarity threshold
         """
-        if 'threshold' in params:
-            self.threshold = float(params['threshold'])
+        if 'threshold' in kwargs:
+            self.threshold = float(kwargs['threshold'])
             logger.info(f"Task '{self.task_id}': Updated threshold={self.threshold:.2f}")
 
 

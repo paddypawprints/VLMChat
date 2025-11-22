@@ -1,9 +1,9 @@
 """
-CLIP Vision task that generates embeddings for detection crops.
+FashionClip Vision task that generates embeddings for detection crops.
 
 This task extracts image crops for each detection bounding box and generates
-CLIP vision embeddings using a pre-initialized CLIPModel. The embeddings can
-be used downstream for similarity matching, ranking, or VLM processing.
+FashionClip vision embeddings (768-dimensional, optimized for fashion domain).
+The embeddings can be used downstream for fashion-specific similarity matching.
 """
 
 from typing import List, Optional, Dict
@@ -17,46 +17,46 @@ from ...object_detector.detection_base import Detection
 logger = logging.getLogger(__name__)
 
 
-@register_task('clip_vision')
-class ClipVisionTask(BaseTask):
+@register_task('fashion_clip_vision')
+class FashionClipVisionTask(BaseTask):
     """
-    Generates CLIP vision embeddings for detection crops.
+    Generates FashionClip vision embeddings for detection crops.
     
     This task:
     1. Takes IMAGE and DETECTIONS from context
     2. Crops the image for each TOP-LEVEL detection bounding box (ignores children)
-    3. Creates a batch of cropped images (numpy arrays)
-    4. Runs CLIP vision encoder on the batch
+    3. Creates a batch of cropped images (PIL Images)
+    4. Runs FashionClip vision encoder on the batch (768-dim embeddings)
     5. Stores embeddings in context (one per top-level detection)
     6. Passes through IMAGE and DETECTIONS unchanged
     
     The embeddings can be used for:
-    - Similarity matching between detections
-    - Ranking/scoring detections against text queries
-    - Feature vectors for downstream VLM processing
+    - Fashion-specific similarity matching
+    - Ranking/scoring fashion items against text queries
+    - Feature vectors for fashion-aware downstream processing
     
     Example:
-        clip_task = ClipVisionTask(
-            task_id="clip_vision",
-            clip_model=clip_model
+        fashion_clip_task = FashionClipVisionTask(
+            task_id="fashion_clip_vision",
+            fashion_clip_model=fashion_clip_model
         )
         
         # After execution, context contains:
         # - ContextDataType.DETECTIONS: Original detections
         # - ContextDataType.IMAGE: Original image
-        # - ContextDataType.EMBEDDINGS: List of CLIP embeddings
+        # - ContextDataType.EMBEDDINGS: List of FashionClip embeddings (768-dim)
     """
     
-    def __init__(self, clip_model=None, task_id: str = "clip_vision"):
+    def __init__(self, fashion_clip_model=None, task_id: str = "fashion_clip_vision"):
         """
-        Initialize CLIP vision task.
+        Initialize FashionClip vision task.
         
         Args:
-            clip_model: Pre-initialized CLIPModel instance (can be injected later)
+            fashion_clip_model: Pre-initialized FashionClipModel instance (can be injected later)
             task_id: Unique identifier for this task
         """
         super().__init__(task_id)
-        self.clip_model = clip_model
+        self.fashion_clip_model = fashion_clip_model
         
         # Define contracts
         self.input_contract = {
@@ -66,17 +66,17 @@ class ClipVisionTask(BaseTask):
         self.output_contract = {
             ContextDataType.IMAGE: Image.Image,
             ContextDataType.DETECTIONS: list,
-            ContextDataType.EMBEDDINGS: list  # List of numpy arrays
+            ContextDataType.EMBEDDINGS: list  # List of numpy arrays (768-dim)
         }
     
-    def configure(self, params: Dict[str, str]) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure from DSL parameters.
         
         Args:
-            params: Configuration parameters (currently unused)
+            **kwargs: Configuration parameters (currently unused)
         """
-        pass  # CLIP model is set at initialization
+        pass  # FashionClip model is set at initialization
     
     def _crop_detection_from_image(self, image: Image.Image, detection: Detection) -> np.ndarray:
         """
@@ -103,7 +103,7 @@ class ClipVisionTask(BaseTask):
     
     def run(self, context: Context) -> Context:
         """
-        Generate CLIP embeddings for detection crops.
+        Generate FashionClip embeddings for detection crops.
         
         Args:
             context: Input context with IMAGE and DETECTIONS
@@ -127,16 +127,19 @@ class ClipVisionTask(BaseTask):
         
         if not detections:
             # No detections - encode the entire image instead
+            logger.info(f"Task {self.task_id}: No detections found, encoding entire image")
             try:
-                runtime = self.clip_model._runtime_as_clip()
+                runtime = self.fashion_clip_model._runtime_as_fashion_clip()
                 emb = runtime.encode_image(image)
                 # Store single embedding for entire image
                 context.data[ContextDataType.EMBEDDINGS] = [emb.cpu().numpy()]
                 return context
             except Exception as e:
-                print(f"Error encoding entire image: {e}")
+                logger.error(f"Task {self.task_id}: Error encoding entire image: {e}")
                 context.data[ContextDataType.EMBEDDINGS] = []
                 return context
+        
+        logger.info(f"Task {self.task_id}: Processing {len(detections)} detections")
         
         # Crop images for each TOP-LEVEL detection only (ignore children)
         cropped_images = []
@@ -159,14 +162,14 @@ class ClipVisionTask(BaseTask):
                     cropped_images.append(crop)
                     
             except Exception as e:
-                print(f"Warning: Failed to crop detection {det.id}: {e}")
+                logger.warning(f"Task {self.task_id}: Failed to crop detection {det.id}: {e}")
                 # Add placeholder for failed crops
                 cropped_images.append(np.zeros((224, 224, 3), dtype=np.uint8))
         
-        # Generate CLIP embeddings for batch
+        # Generate FashionClip embeddings for batch
         try:
-            # CLIPModel uses a runtime backend
-            runtime = self.clip_model._runtime_as_clip()
+            # FashionClipModel uses a runtime backend
+            runtime = self.fashion_clip_model._runtime_as_fashion_clip()
             
             embeddings = []
             for crop_array in cropped_images:
@@ -177,11 +180,13 @@ class ClipVisionTask(BaseTask):
                 # Convert torch tensor to numpy and store
                 embeddings.append(emb.cpu().numpy())
             
+            logger.info(f"Task {self.task_id}: Generated {len(embeddings)} FashionClip embeddings (768-dim)")
+            
             # Store embeddings in context
             context.data[ContextDataType.EMBEDDINGS] = embeddings
             
         except Exception as e:
-            print(f"Error generating CLIP embeddings: {e}")
+            logger.error(f"Task {self.task_id}: Error generating FashionClip embeddings: {e}")
             # Return empty embeddings on error
             context.data[ContextDataType.EMBEDDINGS] = []
         
@@ -190,8 +195,8 @@ class ClipVisionTask(BaseTask):
     
     def __str__(self) -> str:
         """String representation."""
-        model_name = getattr(self.clip_model, 'model_name', 'unknown')
-        return f"ClipVisionTask(id={self.task_id}, model={model_name})"
+        model_name = getattr(self.fashion_clip_model, 'model_name', 'FashionClip')
+        return f"FashionClipVisionTask(id={self.task_id}, model={model_name})"
     
     def __repr__(self) -> str:
         """Debug representation."""
@@ -199,19 +204,31 @@ class ClipVisionTask(BaseTask):
 
 
 if __name__ == "__main__":
-    # Example usage (requires actual CLIPModel)
-    print("\n--- ClipVisionTask Example ---\n")
+    # Example usage (requires actual FashionClipModel)
+    print("\n--- FashionClipVisionTask Example ---\n")
     
-    # Create mock CLIP model for demonstration
-    class MockCLIPModel:
+    # Create mock FashionClip model for demonstration
+    class MockFashionClipModel:
         def __init__(self):
-            self.model_name = "MobileCLIP2-S0"
+            self.model_name = "Marqo/marqo-fashionSigLIP"
         
-        def encode_images(self, images: List[np.ndarray]) -> List[np.ndarray]:
+        def _runtime_as_fashion_clip(self):
+            return self
+        
+        def encode_image(self, image: Image.Image) -> 'MockTensor':
             """Mock encoding - returns random embeddings."""
-            print(f"  Encoding {len(images)} image crops...")
-            # Return random embeddings (512-dim for MobileCLIP)
-            return [np.random.randn(512).astype(np.float32) for _ in images]
+            print(f"  Encoding image crop...")
+            import torch
+            # Return random embeddings (768-dim for FashionClip)
+            return torch.randn(1, 768)
+    
+    class MockTensor:
+        def __init__(self, data):
+            self.data = data
+        def cpu(self):
+            return self
+        def numpy(self):
+            return self.data
     
     # Create test data
     ctx = Context()
@@ -220,23 +237,24 @@ if __name__ == "__main__":
     test_image = Image.new('RGB', (640, 480), color='blue')
     ctx.data[ContextDataType.IMAGE] = [test_image]
     
-    # Create test detections
-    det1 = Detection(box=(10, 10, 100, 100), object_category="person", conf=0.92)
-    det2 = Detection(box=(200, 200, 300, 300), object_category="horse", conf=0.89)
-    det3 = Detection(box=(400, 100, 500, 200), object_category="dog", conf=0.95)
+    # Create test detections (fashion items)
+    det1 = Detection(box=(10, 10, 100, 100), object_category="dress", conf=0.92)
+    det2 = Detection(box=(200, 200, 300, 300), object_category="shoes", conf=0.89)
+    det3 = Detection(box=(400, 100, 500, 200), object_category="hat", conf=0.95)
     ctx.data[ContextDataType.DETECTIONS] = [det1, det2, det3]
     
     print(f"Input context:")
     print(f"  IMAGE: {test_image.width}x{test_image.height}")
-    print(f"  DETECTIONS: {len(ctx.data[ContextDataType.DETECTIONS])}")
+    print(f"  DETECTIONS: {len(ctx.data[ContextDataType.DETECTIONS])} fashion items")
     
-    # Create CLIP vision task with mock model
-    mock_clip = MockCLIPModel()
-    clip_task = ClipVisionTask(clip_model=mock_clip, task_id="clip_vision")
-    print(f"\n{clip_task}")
+    # Create FashionClip vision task with mock model
+    mock_fashion_clip = MockFashionClipModel()
+    fashion_clip_task = FashionClipVisionTask(fashion_clip_model=mock_fashion_clip, 
+                                              task_id="fashion_clip_vision")
+    print(f"\n{fashion_clip_task}")
     
     # Run task
-    output_ctx = clip_task.run(ctx)
+    output_ctx = fashion_clip_task.run(ctx)
     
     embeddings = output_ctx.data.get(ContextDataType.EMBEDDINGS, [])
     print(f"\nOutput context:")
@@ -249,4 +267,4 @@ if __name__ == "__main__":
         for i, emb in enumerate(embeddings):
             print(f"  [{i}] shape={emb.shape}, dtype={emb.dtype}")
     
-    print("\n✓ ClipVisionTask generated embeddings for detection crops")
+    print("\n✓ FashionClipVisionTask generated 768-dim embeddings for fashion item crops")

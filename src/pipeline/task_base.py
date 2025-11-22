@@ -20,6 +20,41 @@ import time
 logger = logging.getLogger(__name__)
 
 
+# Task Registry
+_task_registry: Dict[str, type] = {}
+
+
+def register_task(name: str):
+    """
+    Decorator to register a task class by name.
+    
+    Usage:
+        @register_task('my_task')
+        class MyTask(BaseTask):
+            ...
+    
+    Args:
+        name: The name used in DSL to reference this task
+    
+    Returns:
+        The decorator function
+    """
+    def decorator(cls):
+        _task_registry[name] = cls
+        return cls
+    return decorator
+
+
+def get_task_registry() -> Dict[str, type]:
+    """
+    Get a copy of the task registry.
+    
+    Returns:
+        Dictionary mapping task names to task classes
+    """
+    return _task_registry.copy()
+
+
 class LoopControlAction(enum.Enum):
     """
     Actions that loop control conditions can return.
@@ -87,6 +122,7 @@ class BaseTask(ABC):
         self.readiness = False
         self.upstream_tasks: List['BaseTask'] = []
         self.collector = None  # Set by runner if metrics enabled
+        self._trace_recorder = None  # Set by runner if tracing enabled
         
         # Cooperative timing support
         self.time_budget_ms = time_budget_ms  # Milliseconds allowed for execution

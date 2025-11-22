@@ -13,12 +13,13 @@ from PIL import Image, ImageEnhance
 import logging
 from typing import List
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 from ...object_detector.detection_base import Detection
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('color_enhance')
 class ColorEnhanceTask(BaseTask):
     """
     Enhances color saturation in detection crops for improved color attribute detection.
@@ -146,15 +147,15 @@ class ColorEnhanceTask(BaseTask):
         
         return context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure task from parameters.
         
         Args:
-            params: Configuration dict with optional keys:
+            **kwargs: Configuration parameters with optional keys:
                 - saturation_factor: float (typically 1.0-3.0)
         """
-        if 'saturation_factor' in params:
-            self.saturation_factor = float(params['saturation_factor'])
+        if 'saturation_factor' in kwargs:
+            self.saturation_factor = float(kwargs['saturation_factor'])
             logger.info(f"Task '{self.task_id}': Updated saturation_factor={self.saturation_factor}")
 

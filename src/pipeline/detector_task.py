@@ -9,10 +9,12 @@ from typing import Optional, List, Dict
 import numpy as np
 from PIL import Image
 
-from .task_base import BaseTask, Context, ContextDataType
+from .task_base import BaseTask, Context, ContextDataType, register_task
 from ..object_detector.detection_base import ObjectDetector, Detection
 
 
+@register_task('detect')
+@register_task('detector')
 class DetectorTask(BaseTask):
     """
     Pipeline task adapter for object detection.

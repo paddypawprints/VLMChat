@@ -181,12 +181,12 @@ class LoopConnector(Connector):
         
         return context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure loop connector from parameters.
         
         Args:
-            params: Configuration dict (currently unused, body tasks set in __init__)
+            **kwargs: Configuration parameters (currently unused, body tasks set in __init__)
         """
         # Body tasks are set via constructor
         # This method exists for interface compatibility

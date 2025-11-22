@@ -9,10 +9,11 @@ including surrounding visual context.
 from typing import Dict
 from PIL import Image
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 from ...object_detector.detection_base import Detection
 
 
+@register_task('detection_expander')
 class DetectionExpanderTask(BaseTask):
     """
     Expands detection bounding boxes by a configurable percentage.

@@ -411,14 +411,16 @@ class Parser:
 class PipelineBuilder:
     """Builds pipeline objects from AST."""
     
-    def __init__(self, task_registry: Dict[str, type]):
+    def __init__(self, task_registry: Dict[str, type], pipeline_dirs: Optional[List[str]] = None):
         """
         Initialize builder.
         
         Args:
             task_registry: Dict mapping task names to task classes
+            pipeline_dirs: Optional list of directories to search for .dsl files
         """
         self.task_registry = task_registry
+        self.pipeline_dirs = pipeline_dirs or []
         self.task_counter = {}  # Track instances per task type for unique IDs
         self.in_loop = False
     
@@ -448,13 +450,33 @@ class PipelineBuilder:
                 f"at line {node.line}, column {node.column}"
             )
         
-        # Look up task class
-        if node.name not in self.task_registry:
-            raise ValueError(
-                f"Unknown task '{node.name}' at line {node.line}, column {node.column}"
-            )
+        # Look up task class or .dsl file
+        task_class = None
+        dsl_file_path = None
         
-        task_class = self.task_registry[node.name]
+        if node.name in self.task_registry:
+            task_class = self.task_registry[node.name]
+        elif self.pipeline_dirs:
+            # Search for {task_name}.dsl in pipeline directories
+            import os
+            for directory in self.pipeline_dirs:
+                candidate_path = os.path.join(directory, f"{node.name}.dsl")
+                if os.path.isfile(candidate_path):
+                    dsl_file_path = candidate_path
+                    # Use Pipeline task class
+                    task_class = self.task_registry.get('pipeline')
+                    if not task_class:
+                        raise ValueError(
+                            f"Pipeline task not registered but needed for '{node.name}.dsl' "
+                            f"at line {node.line}, column {node.column}"
+                        )
+                    break
+        
+        if not task_class:
+            raise ValueError(
+                f"Unknown task '{node.name}' at line {node.line}, column {node.column}. "
+                f"Not found in registry{' or pipeline directories: ' + ', '.join(self.pipeline_dirs) if self.pipeline_dirs else ''}"
+            )
         
         # Check if explicit ID provided in DSL params
         if 'id' in node.params:
@@ -478,6 +500,11 @@ class PipelineBuilder:
                 # Fallback: create without task_id, then set it
                 task = task_class()
                 task.task_id = unique_id
+            
+            # If this is a Pipeline task loaded from .dsl file, configure it with the file path
+            if dsl_file_path:
+                # Pipeline task needs the DSL file path
+                params_for_configure['file'] = dsl_file_path
             
             # Set timing constraints
             if node.advisory_time_ms:
@@ -593,16 +620,23 @@ class DSLParser:
     Usage:
         parser = DSLParser(task_registry)
         pipeline = parser.parse(dsl_text)
+        
+        # With automatic pipeline loading:
+        parser = DSLParser(task_registry, pipeline_dirs=['./pipelines', './dsl'])
+        pipeline = parser.parse('a->my_pipeline()->b')  # Looks for my_pipeline.dsl
     """
     
-    def __init__(self, task_registry: Dict[str, type]):
+    def __init__(self, task_registry: Dict[str, type], pipeline_dirs: Optional[List[str]] = None):
         """
         Initialize parser.
         
         Args:
             task_registry: Dict mapping task names to task classes
+            pipeline_dirs: Optional list of directories to search for .dsl files
+                          when a task name is not found in the registry
         """
         self.task_registry = task_registry
+        self.pipeline_dirs = pipeline_dirs or []
     
     def parse(self, text: str) -> Any:
         """
@@ -627,7 +661,7 @@ class DSLParser:
         ast = parser.parse()
         
         # Build pipeline
-        builder = PipelineBuilder(self.task_registry)
+        builder = PipelineBuilder(self.task_registry, self.pipeline_dirs)
         pipeline = builder.build(ast)
         
         return pipeline
@@ -637,50 +671,89 @@ def create_task_registry() -> Dict[str, type]:
     """
     Create a registry of all available tasks.
     
+    Tasks self-register using the @register_task decorator.
+    This function triggers imports to ensure all tasks are registered.
+    
     Returns:
         Dict mapping task names to task classes
     """
-    # Use lazy imports to avoid circular dependencies
-    import sys
-    import importlib
+    # Import all task modules to trigger registration
+    # Tasks in pipeline root
+    try:
+        from . import diagnostic_task
+        from . import diagnostic_condition
+        from . import start_task
+        from . import pass_task
+        from . import context_cleanup_task
+        from . import detector_task
+        from . import smolvlm_task
+        from . import timeout_task
+        from . import pipeline
+    except ImportError as e:
+        # Some pipeline tasks may not be available
+        pass
     
-    task_map = {
-        'camera': 'src.pipeline.tasks.camera_task.CameraTask',
-        'clip_compare': 'src.pipeline.tasks.clip_compare_task.ClipCompareTask',
-        'clip_text_encoder': 'src.pipeline.tasks.clip_text_encoder_task.ClipTextEncoderTask',
-        'clip_vision': 'src.pipeline.tasks.clip_vision_task.ClipVisionTask',
-        'color_enhance': 'src.pipeline.tasks.color_enhance_task.ColorEnhanceTask',
-        'color_swap': 'src.pipeline.tasks.color_swap_task.ColorSwapTask',
-        'console_input': 'src.pipeline.tasks.console_input_task.ConsoleInputTask',
-        'console_output': 'src.pipeline.tasks.console_output_task.ConsoleOutputTask',
-        'context_cleanup': 'src.pipeline.tasks.context_cleanup_task.ContextCleanupTask',
-        'detect': 'src.pipeline.tasks.detector_task.DetectorTask',
-        'detector': 'src.pipeline.tasks.detector_task.DetectorTask',
-        'detection_expander': 'src.pipeline.tasks.detection_expander_task.DetectionExpanderTask',
-        'diagnostic': 'src.pipeline.diagnostic_task.DiagnosticTask',  # Test/debug task
-        'diagnostic_condition': 'src.pipeline.diagnostic_condition.DiagnosticCondition',  # Test loop condition
-        'history_update': 'src.pipeline.tasks.history_update_task.HistoryUpdateTask',
-        'pass': 'src.pipeline.pass_task.PassTask',  # In pipeline root, not tasks/
-        'prompt_embedding_source': 'src.pipeline.tasks.prompt_embedding_source_task.PromptEmbeddingSourceTask',
-        'prompt_embeddings': 'src.pipeline.tasks.prompt_embedding_source_task.PromptEmbeddingSourceTask',
-        'prompt_similarity': 'src.pipeline.tasks.prompt_similarity_compare_task.PromptSimilarityCompareTask',
-        'smolvlm': 'src.pipeline.tasks.smolvlm_task.SmolVLMTask',
-        'start': 'src.pipeline.start_task.StartTask',  # In pipeline root, not tasks/
-        'timeout': 'src.pipeline.timeout_task.TimeoutTask',  # In pipeline root, not tasks/
-    }
+    # Tasks in tasks/ subdirectory - import individually to handle failures
+    try:
+        from .tasks import camera_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import clip_compare_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import clip_text_encoder_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import clip_vision_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import color_enhance_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import color_swap_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import console_input_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import console_output_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import detection_expander_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import fashion_clip_text_encoder_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import fashion_clip_vision_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import history_update_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import prompt_embedding_source_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import prompt_similarity_compare_task
+    except ImportError:
+        pass
     
-    registry = {}
-    for name, module_path in task_map.items():
-        module_name, class_name = module_path.rsplit('.', 1)
-        try:
-            module = importlib.import_module(module_name)
-            task_class = getattr(module, class_name)
-            registry[name] = task_class
-        except (ImportError, AttributeError) as e:
-            # Task not available - skip it (framework class may not exist yet)
-            pass
-    
-    return registry
+    # Get the registry populated by @register_task decorators
+    from .task_base import get_task_registry
+    return get_task_registry()
 
 
 # Example usage and testing

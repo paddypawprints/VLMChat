@@ -9,12 +9,13 @@ import logging
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 from ...object_detector.detection_base import Detection
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('clip_compare')
 class ClipCompareTask(BaseTask):
     """
     Compares vision embeddings to prompt embeddings for semantic matching.
@@ -186,20 +187,20 @@ class ClipCompareTask(BaseTask):
         
         return context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure task from parameters.
         
         Args:
-            params: Configuration dict with optional keys:
+            **kwargs: Configuration parameters with optional keys:
                 - min_similarity: float (0-1)
                 - filter_detections: bool
         """
-        if 'min_similarity' in params:
-            self.min_similarity = float(params['min_similarity'])
+        if 'min_similarity' in kwargs:
+            self.min_similarity = float(kwargs['min_similarity'])
             logger.info(f"Task '{self.task_id}': Set min_similarity={self.min_similarity}")
         
-        if 'filter_detections' in params:
-            filter_str = params['filter_detections'].lower()
+        if 'filter_detections' in kwargs:
+            filter_str = kwargs['filter_detections'].lower()
             self.filter_detections = filter_str in ('true', '1', 'yes')
             logger.info(f"Task '{self.task_id}': Set filter_detections={self.filter_detections}")

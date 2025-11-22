@@ -77,6 +77,34 @@ class ModelConfig(BaseModel):
         default=Path("~/onnx").expanduser().absolute(),
         description="Base directory for ONNX model files"
     )
+    
+    # CLIP Model Configuration
+    clip_model_name: str = Field(
+        default="MobileCLIP2-S0",
+        description="Name of the CLIP model to use"
+    )
+    clip_pretrained_path: Optional[str] = Field(
+        default="./mobileclip2_s0.pt",
+        description="Path to the pretrained CLIP model file"
+    )
+    clip_model_kwargs: Optional[dict] = Field(
+        default=None,
+        description="Additional keyword arguments for CLIP model initialization"
+    )
+    
+    # FashionClip Model Configuration
+    fashion_clip_model_name: str = Field(
+        default="hf-hub:Marqo/marqo-fashionSigLIP",
+        description="Name of the FashionClip model to use"
+    )
+    fashion_clip_pretrained: str = Field(
+        default="",
+        description="Pretrained weights for FashionClip (empty for default)"
+    )
+    device: str = Field(
+        default="cpu",
+        description="Device to run models on (cpu, cuda, mps)"
+    )
 
     @validator('onnx_base_path', pre=True)
     def expand_onnx_path(cls, v):

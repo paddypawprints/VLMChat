@@ -5,9 +5,10 @@ Captures user text input from console and stores it in the pipeline context.
 """
 
 from typing import Dict
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 
 
+@register_task('console_input')
 class ConsoleInputTask(BaseTask):
     """
     Pipeline task that captures text input from console.

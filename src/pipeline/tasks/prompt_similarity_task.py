@@ -259,26 +259,26 @@ class PromptSimilarityTask(BaseTask):
         
         return context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure task from parameters.
         
         Args:
-            params: Configuration dict with optional keys:
+            **kwargs: Configuration parameters with optional keys:
                 - prompts: List[str] of text prompts
                 - threshold: float similarity threshold
                 - clip_model: str reference to clip model (ignored, set directly)
         """
-        if 'prompts' in params:
-            if isinstance(params['prompts'], str):
+        if 'prompts' in kwargs:
+            if isinstance(kwargs['prompts'], str):
                 # Split comma-separated string
-                self.prompts = [p.strip() for p in params['prompts'].split(',')]
+                self.prompts = [p.strip() for p in kwargs['prompts'].split(',')]
             else:
-                self.prompts = params['prompts']
+                self.prompts = kwargs['prompts']
             logger.info(f"Task '{self.task_id}': Updated prompts to {len(self.prompts)} items")
         
-        if 'threshold' in params:
-            self.threshold = float(params['threshold'])
+        if 'threshold' in kwargs:
+            self.threshold = float(kwargs['threshold'])
             logger.info(f"Task '{self.task_id}': Updated threshold={self.threshold:.2f}")
 
 

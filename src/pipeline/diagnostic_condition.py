@@ -11,11 +11,12 @@ import logging
 import time
 import threading
 from typing import Optional, Callable
-from .task_base import LoopCondition, LoopControlAction, Context, ContextDataType
+from .task_base import LoopCondition, LoopControlAction, Context, ContextDataType, register_task
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('diagnostic_condition')
 class DiagnosticCondition(LoopCondition):
     """
     Control task for testing loop behavior.

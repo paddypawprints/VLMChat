@@ -13,12 +13,13 @@ from PIL import Image
 import logging
 from typing import List, Tuple
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 from ...object_detector.detection_base import Detection
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('color_swap')
 class ColorSwapTask(BaseTask):
     """
     Swaps color channels in detection crops to test color attribute detection.
@@ -164,15 +165,15 @@ class ColorSwapTask(BaseTask):
         
         return context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure task from parameters.
         
         Args:
-            params: Configuration dict with optional keys:
+            **kwargs: Configuration parameters with optional keys:
                 - swap_channels: tuple of two ints (0-2)
         """
-        if 'swap_channels' in params:
-            self.swap_channels = tuple(params['swap_channels'])
+        if 'swap_channels' in kwargs:
+            self.swap_channels = tuple(kwargs['swap_channels'])
             logger.info(f"Task '{self.task_id}': Updated swap_channels={self.swap_channels}")
 

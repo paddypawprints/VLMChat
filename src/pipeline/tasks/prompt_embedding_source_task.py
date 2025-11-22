@@ -9,11 +9,13 @@ import logging
 import json
 import os
 from typing import Optional, Dict, List, Any
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('prompt_embedding_source')
+@register_task('prompt_embeddings')
 class PromptEmbeddingSourceTask(BaseTask):
     """
     Loads or generates prompt embeddings and injects into context.

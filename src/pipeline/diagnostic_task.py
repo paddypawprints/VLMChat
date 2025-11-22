@@ -13,11 +13,12 @@ import logging
 import time
 import threading
 from typing import Optional, Any
-from .task_base import BaseTask, Context, ContextDataType
+from .task_base import BaseTask, Context, ContextDataType, register_task
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('diagnostic')
 class DiagnosticTask(BaseTask):
     """
     Task that reports execution details for testing and debugging.

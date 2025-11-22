@@ -5,9 +5,10 @@ Used as the beginning of a pipeline, especially before splits where
 multiple parallel branches need a common starting point.
 """
 
-from .task_base import BaseTask, Context
+from .task_base import BaseTask, Context, register_task
 
 
+@register_task('start')
 class StartTask(BaseTask):
     """
     Empty source task that produces no data.

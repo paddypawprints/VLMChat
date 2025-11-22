@@ -7,11 +7,12 @@ Breaks loop execution after a specified time duration.
 import time
 import logging
 from typing import Optional
-from .task_base import BaseTask, Context, ContextDataType, LoopCondition, LoopControlAction
+from .task_base import BaseTask, Context, ContextDataType, LoopCondition, LoopControlAction, register_task
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('timeout')
 class TimeoutCondition(LoopCondition):
     """
     Loop control condition that breaks after N seconds.
@@ -86,18 +87,18 @@ class TimeoutCondition(LoopCondition):
             logger.debug(f"[{self.task_id}] {elapsed:.1f}s / {self.timeout}s elapsed")
             return LoopControlAction.PASS
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure timeout from parameters.
         
         Args:
-            params: Configuration dict with 'timeout' or 'seconds' key (float seconds)
+            **kwargs: Configuration parameters with 'timeout' or 'seconds' key (float seconds)
         """
-        if 'timeout' in params:
-            self.timeout = float(params['timeout'])
+        if 'timeout' in kwargs:
+            self.timeout = float(kwargs['timeout'])
             logger.info(f"TimeoutCondition '{self.task_id}' configured: timeout={self.timeout}s")
-        elif 'seconds' in params:
-            self.timeout = float(params['seconds'])
+        elif 'seconds' in kwargs:
+            self.timeout = float(kwargs['seconds'])
             logger.info(f"TimeoutCondition '{self.task_id}' configured: timeout={self.timeout}s")
 
 

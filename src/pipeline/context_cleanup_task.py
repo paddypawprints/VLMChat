@@ -7,11 +7,12 @@ mutable data while preserving immutable data for the next iteration.
 
 import logging
 from typing import List, Optional
-from .task_base import BaseTask, Context, ContextDataType
+from .task_base import BaseTask, Context, ContextDataType, register_task
 
 logger = logging.getLogger(__name__)
 
 
+@register_task('context_cleanup')
 class ContextCleanupTask(BaseTask):
     """
     End-of-pipeline task that filters context for next iteration.
@@ -61,19 +62,19 @@ class ContextCleanupTask(BaseTask):
         self.input_contract = {}  # Accepts any context
         self.output_contract = {}  # Returns filtered context
     
-    def configure(self, params: dict) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure from DSL parameters.
         
         Args:
-            params: Configuration parameters
+            **kwargs: Configuration parameters
                 - keep_types: Comma-separated list of type names to keep
                 
         Example:
             {"keep_types": "prompt_embeddings,audit"}
         """
-        if "keep_types" in params:
-            type_names = [t.strip() for t in params["keep_types"].split(",")]
+        if "keep_types" in kwargs:
+            type_names = [t.strip() for t in kwargs["keep_types"].split(",")]
             self.keep_types = []
             for name in type_names:
                 # Find matching ContextDataType by type_name

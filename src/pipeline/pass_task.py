@@ -5,9 +5,10 @@ Pythonesque "pass" equivalent for pipelines - useful as a placeholder or
 to create explicit pass-through branches in complex pipeline topologies.
 """
 
-from .task_base import BaseTask, Context
+from .task_base import BaseTask, Context, register_task
 
 
+@register_task('pass')
 class PassTask(BaseTask):
     """
     A no-op task that passes context through unchanged.

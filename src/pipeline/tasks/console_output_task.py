@@ -4,9 +4,10 @@ Console output task for pipeline integration.
 Displays the model response to console (sink task).
 """
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 
 
+@register_task('console_output')
 class ConsoleOutputTask(BaseTask):
     """
     Pipeline sink task that displays response to console.

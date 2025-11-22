@@ -7,10 +7,11 @@ Wraps a camera instance and adapts it to the pipeline task interface.
 from typing import Optional, Dict
 from PIL import Image
 
-from ..task_base import BaseTask, Context, ContextDataType
+from ..task_base import BaseTask, Context, ContextDataType, register_task
 from ...camera.camera_base import BaseCamera
 
 
+@register_task('camera')
 class CameraTask(BaseTask):
     """
     Pipeline task adapter for camera capture.
