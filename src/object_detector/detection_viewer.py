@@ -31,7 +31,8 @@ class DetectionViewer(ObjectDetector):
     def __init__(self, *, 
                  source: ObjectDetector, 
                  viewer: ImageViewer,
-                 display_time_ms: int = 1):
+                 display_time_ms: int = 1,
+                 show_children: bool = True):
         """
         Initializes the DetectionViewer.
         
@@ -42,11 +43,14 @@ class DetectionViewer(ObjectDetector):
                            - 0: Don't display (skip visualization)
                            - -1: Wait for keypress
                            - >0: Display for specified milliseconds (default: 1)
+            show_children: Whether to recursively draw child detections (default: True).
+                          If False, only top-level detections are drawn.
         """
         super().__init__(source)
         self._viewer = viewer
         self._ready = False
         self._display_time_ms = display_time_ms
+        self._show_children = show_children
         
         # Color palette for different object categories
         self._colors = [
@@ -107,15 +111,37 @@ class DetectionViewer(ObjectDetector):
         
         # Draw box for this detection
         x1, y1, x2, y2 = det.box
-        label = f"[ID {det.id}] {det.object_category} {det.conf:.2f}"
         
-        # Add depth indicator
-        if depth > 0:
-            label += f" [d:{depth}]"
-        
-        # Add child count if present
-        if hasattr(det, 'children') and len(det.children) > 0:
-            label += f" [{len(det.children)} children]"
+        # Build label with matched prompts if available
+        if hasattr(det, 'matched_prompts') and det.matched_prompts and \
+           hasattr(det, 'match_probabilities') and det.match_probabilities:
+            # Create multi-line label: main label + additional matches
+            labels = []
+            
+            # Main label with best match
+            main_label = f"[ID {det.id}] {det.matched_prompts[0]} {det.match_probabilities[0]:.3f}"
+            if depth > 0:
+                main_label += f" [d:{depth}]"
+            if hasattr(det, 'children') and len(det.children) > 0:
+                main_label += f" [{len(det.children)} children]"
+            labels.append(main_label)
+            
+            # Additional matches as separate lines
+            for p, prob in zip(det.matched_prompts[1:], det.match_probabilities[1:]):
+                labels.append(f"  + {p} {prob:.3f}")
+            
+            label = labels
+        else:
+            # Fallback to original category and confidence
+            label = f"[ID {det.id}] {det.object_category} {det.conf:.2f}"
+            
+            # Add depth indicator
+            if depth > 0:
+                label += f" [d:{depth}]"
+            
+            # Add child count if present
+            if hasattr(det, 'children') and len(det.children) > 0:
+                label += f" [{len(det.children)} children]"
         
         # Vary thickness based on depth (thicker = higher level)
         thickness = max(1, 3 - depth)
@@ -129,8 +155,8 @@ class DetectionViewer(ObjectDetector):
             label=label
         )
         
-        # Recursively draw children
-        if hasattr(det, 'children'):
+        # Recursively draw children if enabled
+        if self._show_children and hasattr(det, 'children'):
             for child in det.children:
                 vis_image = self._draw_detection_recursive(vis_image, child, depth + 1)
         

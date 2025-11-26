@@ -5,6 +5,9 @@ Implementation of an ObjectDetector using Ultralytics YOLOv8.
 from typing import List, Optional, Tuple
 from PIL import Image
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # --- Dependencies for YOLO implementation ---
 from ultralytics import YOLO
@@ -58,7 +61,7 @@ class YoloV8Detector(ObjectDetector):
             return
             
         try:
-            print(f"Loading model {self.model_name} for CPU inference...")
+            logger.debug(f"Loading model {self.model_name} for CPU inference...")
             self.model = YOLO(self.model_name)
             
             # Perform a dummy inference to warm up the model
@@ -71,10 +74,10 @@ class YoloV8Detector(ObjectDetector):
                 self._labels = [self.model.names[i] for i in range(len(self.model.names))]
             
             self._ready = True
-            print(f"Model {self.model_name} loaded successfully.")
+            logger.debug(f"Model {self.model_name} loaded successfully.")
             
         except Exception as e:
-            print(f"Error loading YOLOv8 model: {e}")
+            logger.error(f"Error loading YOLOv8 model: {e}")
             self.model = None
             self._ready = False
 
@@ -86,7 +89,7 @@ class YoloV8Detector(ObjectDetector):
         self.model = None
         self._ready = False
         self._labels = []
-        print(f"YOLOv8 detector ({self.model_name}) stopped.")
+        logger.debug(f"YOLOv8 detector ({self.model_name}) stopped.")
 
     def readiness(self) -> bool:
         """

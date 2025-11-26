@@ -1,15 +1,18 @@
 """
-Pipeline orchestrator that executes connectors using a thread pool.
+Pipeline orchestrator that executes tasks using visitor pattern on AST.
 
-The runner extracts a dependency graph from the connector and schedules
-tasks based on their readiness and dependencies.
+The runner uses the ExecutionVisitor to traverse the decorated AST. Each cursor
+holds its position in the AST and navigates based on node types.
 """
 
 import logging
 import time
-from typing import List, Set, Dict, Any, Optional, Union
+import queue
+import threading
+from typing import List, Set, Dict, Any, Optional, Union, Tuple
 from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import nullcontext
+from dataclasses import dataclass
 from .task_base import Connector, BaseTask, Context, ContextDataType
 from .trace import print_trace_events
 from ..metrics.metrics_collector import Collector, Session
@@ -18,39 +21,356 @@ from ..metrics.instruments import MinMaxAvgLastInstrument, AverageDurationInstru
 logger = logging.getLogger(__name__)
 
 
-class PipelineRunner:
-    def __init__(self, root: Union[Connector, List[BaseTask], BaseTask], max_workers: int = 4, collector: Optional[Collector] = None, enable_trace: bool = False, overrides: Optional[Dict[str, Any]] = None):
-        # Normalize input to Connector
-        if isinstance(root, list):
-            # Wrap list in connector
-            wrapper = Connector(task_id="pipeline_root")
-            wrapper.internal_tasks = root
-            self.connector = wrapper
-        elif isinstance(root, Connector):
-            self.connector = root
+@dataclass
+class Cursor:
+    """A cursor represents an execution point in the pipeline task graph.
+    
+    Each cursor carries:
+    - Its current task position in the graph
+    - Its data (context)
+    - A unique ID for tracking
+    """
+    id: int
+    current_task: BaseTask
+    context: Context
+    batch_id: int = 0  # For future multi-batch support
+    
+    def __repr__(self) -> str:
+        ctx_summary = self._context_summary()
+        return f"Cursor#{self.id}@{self.current_task.task_id}({ctx_summary})"
+    
+    def _context_summary(self) -> str:
+        """Compact summary of context data."""
+        parts = []
+        for dtype, data in self.context.data.items():
+            if data:
+                parts.append(f"{dtype.type_name}[{len(data)}]")
+        return ",".join(parts) if parts else "empty"
+
+
+class DebugLogger:
+    """Provides detailed debug output for cursor-based pipeline execution."""
+    
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self.start_time = time.time()
+        self.events: List[Tuple[float, str]] = []
+    
+    def elapsed_ms(self) -> float:
+        """Milliseconds since start."""
+        return (time.time() - self.start_time) * 1000
+    
+    def log_pipeline_structure(self, root_task: BaseTask, all_tasks: List[BaseTask]):
+        """Log pipeline DAG structure (Option 6: Hybrid format)."""
+        if not self.enabled:
+            return
+        
+        # Build task graph
+        task_graph = self._build_task_graph(all_tasks)
+        
+        print("\n" + "="*70)
+        print(f"[DAG] Pipeline: {len(all_tasks)} tasks, {task_graph['num_merges']} merges, max depth {task_graph['max_depth']}")
+        print("="*70)
+        print("\nTasks:")
+        
+        self._print_task_hierarchy(root_task, task_graph, visited=set(), indent=0)
+        
+        # Execution properties
+        if task_graph['parallel_groups']:
+            print("\nExecution properties:")
+            for group in task_graph['parallel_groups']:
+                tasks_str = " || ".join(t.task_id for t in group)
+                print(f"  - Parallelizable: {tasks_str}")
+        
+        print("="*70 + "\n")
+    
+    def _build_task_graph(self, tasks: List[BaseTask]) -> Dict:
+        """Analyze task graph structure."""
+        merges = [t for t in tasks if len(t.upstream_tasks) > 1]
+        
+        # Find parallel groups (tasks with same upstream fork)
+        from .fork_connector import ForkConnector
+        parallel_groups = []
+        for task in tasks:
+            if isinstance(task, ForkConnector):
+                downstream = self._get_downstream_tasks(task, tasks)
+                if len(downstream) > 1:
+                    parallel_groups.append(downstream)
+        
+        return {
+            'num_merges': len(merges),
+            'max_depth': self._calculate_max_depth(tasks),
+            'parallel_groups': parallel_groups
+        }
+    
+    def _get_downstream_tasks(self, task: BaseTask, all_tasks: List[BaseTask]) -> List[BaseTask]:
+        """Find tasks that have this task as upstream."""
+        return [t for t in all_tasks if task in t.upstream_tasks]
+    
+    def _calculate_max_depth(self, tasks: List[BaseTask]) -> int:
+        """Calculate maximum depth of DAG."""
+        sources = [t for t in tasks if not t.upstream_tasks]
+        if not sources:
+            return 0
+        
+        max_depth = 0
+        for source in sources:
+            depth = self._depth_from_task(source, set(), tasks)
+            max_depth = max(max_depth, depth)
+        return max_depth
+    
+    def _depth_from_task(self, task: BaseTask, visited: Set[str], all_tasks: List[BaseTask]) -> int:
+        """Calculate depth from a given task."""
+        if task.task_id in visited:
+            return 0
+        visited.add(task.task_id)
+        
+        downstream = self._get_downstream_tasks(task, all_tasks)
+        if not downstream:
+            return 1
+        
+        return 1 + max(self._depth_from_task(d, visited.copy(), all_tasks) for d in downstream)
+    
+    def _print_task_hierarchy(self, task: BaseTask, graph: Dict, visited: Set[str], indent: int):
+        """Print task in hierarchical format."""
+        if task.task_id in visited:
+            return
+        visited.add(task.task_id)
+        
+        prefix = "  " * indent
+        task_info = self._format_task_info(task)
+        
+        # Find downstream
+        from .fork_connector import ForkConnector
+        if isinstance(task, ForkConnector):
+            print(f"{prefix}{task.task_id} ──→ {len(task.output_tasks)} branches:")
+            for i, branch_task in enumerate(task.output_tasks):
+                print(f"{prefix}  [{i}] {branch_task.task_id} {self._format_task_info(branch_task)} ──→ ...", end="")
+                # Find where this branch goes
+                merge = self._find_merge_for_branch(branch_task, visited)
+                if merge:
+                    print(f" {merge.task_id}")
+                else:
+                    print()
+            # Continue from merge
+            if task.output_tasks:
+                merge = self._find_merge_for_branch(task.output_tasks[0], visited)
+                if merge:
+                    self._print_task_hierarchy(merge, graph, visited, indent)
         else:
-            # Single task that's not a Connector - wrap it
-            wrapper = Connector(task_id="pipeline_root")
-            wrapper.internal_tasks = [root]
-            self.connector = wrapper
+            downstream = [t for t in graph.get('all_tasks', []) if task in t.upstream_tasks] if 'all_tasks' in graph else []
+            
+            if isinstance(task, Connector) and len(task.upstream_tasks) > 1:
+                # This is a merge
+                sink_marker = " [SINK]" if not downstream else ""
+                print(f"{prefix}{task.task_id} {task_info}{sink_marker}")
+                for next_task in downstream:
+                    self._print_task_hierarchy(next_task, graph, visited, indent + 1)
+            else:
+                next_marker = f" ──→ {downstream[0].task_id}" if downstream else " [SINK]"
+                print(f"{prefix}{task.task_id} {task_info}{next_marker}")
+                for next_task in downstream:
+                    self._print_task_hierarchy(next_task, graph, visited, indent)
+    
+    def _format_task_info(self, task: BaseTask) -> str:
+        """Format task type and parameters."""
+        from .fork_connector import ForkConnector
+        info = f"({type(task).__name__}"
+        
+        if isinstance(task, ForkConnector):
+            info += f", x{task.num_outputs}"
+        elif hasattr(task, 'detector') and task.detector:
+            # DetectorTask
+            info += f", {getattr(task.detector, 'model_name', 'unknown')}"
+        elif isinstance(task, Connector) and len(task.upstream_tasks) > 1:
+            # Merge connector
+            info += ", merge"
+        
+        info += ")"
+        return info
+    
+    def _find_merge_for_branch(self, branch_task: BaseTask, visited: Set[str]) -> Optional[BaseTask]:
+        """Find the merge point for a branch."""
+        # Simple heuristic: find first downstream task with multiple upstreams
+        current = branch_task
+        local_visited = set()
+        
+        while current:
+            if current.task_id in local_visited or current.task_id in visited:
+                return None
+            local_visited.add(current.task_id)
+            
+            # Check if this is a merge (multiple upstreams)
+            if len(current.upstream_tasks) > 1:
+                return current
+            
+            # Move to next task (if only one downstream)
+            # This is a simplified traversal
+            break
+        
+        return None
+    
+    def log_cursors(self, cursors: List[Cursor], merge_arrivals: Dict[str, List[Tuple[Cursor, Context]]]):
+        """Log current cursor positions."""
+        if not self.enabled:
+            return
+        
+        print(f"\n[{self.elapsed_ms():.0f}ms] [CURSORS] Active: {len(cursors)}")
+        for cursor in cursors:
+            print(f"  {cursor}")
+        
+        if merge_arrivals:
+            print(f"[MERGES] Pending: {len(merge_arrivals)}")
+            for merge_id, arrivals in merge_arrivals.items():
+                print(f"  {merge_id}: {len(arrivals)} arrived")
+    
+    def log_exec(self, cursor: Cursor, batch_id: int = 0):
+        """Log task execution start."""
+        if not self.enabled:
+            return
+        elapsed = self.elapsed_ms()
+        print(f"[{elapsed:.0f}ms] Cursor#{cursor.id} executing {cursor.current_task.task_id}")
+        self.events.append((elapsed, f"Cursor#{cursor.id}@{cursor.current_task.task_id}"))
+    
+    def log_fork(self, fork_task: Connector, parent_cursor_id: int, num_branches: int):
+        """Log fork operation."""
+        if not self.enabled:
+            return
+        elapsed = self.elapsed_ms()
+        print(f"[{elapsed:.0f}ms] FORK at {fork_task.task_id}: Cursor#{parent_cursor_id} → {num_branches} branches")
+    
+    def log_cursor_spawn(self, parent_id: int, new_id: int, task: BaseTask):
+        """Log spawning of a new cursor in a fork."""
+        if not self.enabled:
+            return
+        print(f"  → Cursor#{new_id} @ {task.task_id}")
+    
+    def log_merge_arrival(self, merge_task: Connector, cursor_id: int, arrivals: int, expected: int):
+        """Log cursor arrival at merge."""
+        if not self.enabled:
+            return
+        elapsed = self.elapsed_ms()
+        print(f"[{elapsed:.0f}ms] MERGE Cursor#{cursor_id} arrived at {merge_task.task_id} ({arrivals}/{expected})")
+    
+    def log_merge_complete(self, merge_task: Connector, merged_cursor_ids: List[int], new_cursor: Cursor):
+        """Log merge completion."""
+        if not self.enabled:
+            return
+        elapsed = self.elapsed_ms()
+        print(f"[{elapsed:.0f}ms] MERGE Complete at {merge_task.task_id}")
+        print(f"  Merged: {merged_cursor_ids} → Cursor#{new_cursor.id}")
+    
+    def log_timeline(self):
+        """Print execution timeline."""
+        if not self.enabled or not self.events:
+            return
+        print("\n[TIMELINE] Execution trace:")
+        for timestamp, event in self.events:
+            print(f"  {timestamp:6.0f}ms  {event}")
+    
+    def log_ready(self, cursor):
+        """Log when cursor becomes ready."""
+        if self.enabled:
+            logger.debug(f"{cursor} is ready")
+    
+    def log_exec(self, cursor, batch_id=0):
+        """Log cursor execution."""
+        if self.enabled:
+            logger.debug(f"Executing {cursor} in batch {batch_id}")
+
+
+class PipelineRunner:
+    def __init__(self, ast_root: Any, max_workers: int = 4, collector: Optional[Collector] = None, enable_trace: bool = False, overrides: Optional[Dict[str, Any]] = None, debug: bool = False):
+        """Initialize runner with decorated AST root.
+        
+        Args:
+            ast_root: Root AST node (decorated with tasks by parser)
+            max_workers: Max parallel tasks
+            collector: Optional metrics collector
+            enable_trace: Enable execution tracing
+            overrides: Task parameter overrides
+            debug: Enable debug output
+        """
+        self.ast_root = ast_root
+        
+        # Collect all tasks from AST for metrics/tracing setup
+        self._all_tasks = self._collect_all_tasks_from_ast(ast_root)
         
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.graph: List[BaseTask] = []
-        self.immutable_cache: Dict[ContextDataType, List[Any]] = {}
-        self.task_contexts: Dict[str, Context] = {}
-        self.enable_trace = enable_trace
-        self.trace_events: List[tuple] = []  # Thread-safe list for trace events
-        self._trace_lock = None  # Lock for thread-safe trace recording
-        self.overrides = overrides or {}  # Parameter overrides for task configuration
         
-        # Metrics - collector injected from application level
+        # Cursor-based execution state
+        self.merge_arrivals: Dict[str, List[Context]] = {}  # Track contexts arriving at merge points
+        self.next_cursor_id: int = 1
+        
+        # Debug and tracing
+        self.debug_logger = DebugLogger(enabled=debug)
+        self.enable_trace = enable_trace
+        self.trace_events: List[tuple] = []
+        self._trace_lock = None
+        
+        # Configuration
+        self.overrides = overrides or {}
+        
+        # I/O coordination
+        self.input_queue = queue.Queue()
+        self.output_queue = queue.Queue()
+        
+        # Thread-safe state management
+        self._running = threading.Event()
+        self._stop_requested = threading.Event()
+        
+        # Metrics
         self.collector = collector
         if self.collector:
             self._register_metrics()
         
-        connector_id = self.connector.task_id if hasattr(self.connector, 'task_id') else type(self.connector).__name__
-        logger.info(f"PipelineRunner initialized for connector '{connector_id}' with {max_workers} workers (trace={enable_trace})")
+        logger.info(f"PipelineRunner initialized with {len(self._all_tasks)} tasks (AST-based, trace={enable_trace}, debug={debug})")
+    
+    def _collect_all_tasks_from_ast(self, node: Any) -> List[BaseTask]:
+        """Recursively collect all task instances from AST."""
+        tasks = []
+        if hasattr(node, 'task') and node.task:
+            tasks.append(node.task)
+        if hasattr(node, 'fork_task') and node.fork_task:
+            tasks.append(node.fork_task)
+        if hasattr(node, 'merge_task') and node.merge_task:
+            tasks.append(node.merge_task)
+        if hasattr(node, 'loop_task') and node.loop_task:
+            tasks.append(node.loop_task)
+        if hasattr(node, 'tasks'):
+            for child in node.tasks:
+                tasks.extend(self._collect_all_tasks_from_ast(child))
+        if hasattr(node, 'body'):
+            tasks.extend(self._collect_all_tasks_from_ast(node.body))
+        return tasks
+    
+    def send_input(self, text: str) -> None:
+        """Send input text to pipeline (called by external environment like console)."""
+        self.input_queue.put(text)
+    
+    def get_output(self, timeout: float = 0.1) -> Optional[str]:
+        """Get output from pipeline (called by external environment like console).
+        
+        Args:
+            timeout: How long to wait for output (seconds)
+            
+        Returns:
+            Output text if available, None if queue is empty
+        """
+        try:
+            return self.output_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+    
+    def is_running(self) -> bool:
+        """Check if pipeline is currently executing."""
+        return self._running.is_set()
+    
+    def request_stop(self) -> None:
+        """Request graceful shutdown of pipeline execution."""
+        logger.info("Stop requested for pipeline")
+        self._stop_requested.set()
     
     def _register_metrics(self) -> None:
         """Register all pipeline timeseries with the collector."""
@@ -76,6 +396,201 @@ class PipelineRunner:
         
         # Error metrics
         self.collector.register_timeseries("task.failures", ["task_id", "error_type"])
+    
+    # ========== Cursor Navigation Helpers ==========
+    
+    def _copy_context(self, context: Context) -> Context:
+        """Create a copy of a context for branching."""
+        new_ctx = Context()
+        new_ctx.collector = context.collector
+        new_ctx.config = context.config
+        new_ctx.pipeline_runner = context.pipeline_runner
+        # Shallow copy all data (merge will handle deduplication via IDs)
+        for data_type, data in context.data.items():
+            new_ctx.data[data_type] = data[:] if data else []
+        return new_ctx
+    
+    def _find_root_tasks(self) -> List[BaseTask]:
+        """Find root task(s) from AST structure."""
+        entry_task = self._get_entry_task(self.ast_root)
+        return [entry_task] if entry_task else []
+    
+    def _get_entry_task(self, node: Any) -> Optional[BaseTask]:
+        """Get the entry (first) task from an AST node."""
+        from .dsl_parser import TaskNode, SequenceNode, ParallelNode, LoopNode
+        
+        if isinstance(node, TaskNode):
+            return node.task
+        elif isinstance(node, ParallelNode):
+            return node.fork_task
+        elif isinstance(node, LoopNode):
+            return node.loop_task
+        elif isinstance(node, SequenceNode):
+            return self._get_entry_task(node.tasks[0]) if node.tasks else None
+        return None
+    
+    def _is_cursor_ready(self, cursor: Cursor, completed_tasks: Set[str]) -> bool:
+        """Check if cursor's task can execute (all upstream dependencies satisfied)."""
+        for upstream in cursor.current_task.upstream_tasks:
+            if upstream.task_id not in completed_tasks:
+                return False
+        return True
+    
+    def _advance_cursor(self, cursor: Cursor, result_context: Context) -> List[Cursor]:
+        """Advance cursor to downstream task(s). Returns list of new cursors.
+        
+        Handles:
+        - Fork: copies context independently for each branch
+        - Merge: coordinates arrival of multiple cursors
+        - Normal: passes context to downstream
+        """
+        from .fork_connector import ForkConnector
+        
+        task = cursor.current_task
+        new_cursors = []
+        
+        # Check if this is a fork - need to copy context for parallel branches
+        is_fork = isinstance(task, ForkConnector)
+        
+        for downstream_task in task.downstream_tasks:
+            # If downstream is a merge (has multiple upstreams), coordinate arrivals
+            is_merge = len(downstream_task.upstream_tasks) > 1
+            
+            if is_merge:
+                # Register this context at merge point
+                if downstream_task.task_id not in self.merge_arrivals:
+                    self.merge_arrivals[downstream_task.task_id] = []
+                self.merge_arrivals[downstream_task.task_id].append(result_context)
+                
+                # Check if all upstream branches have arrived
+                num_expected = len(downstream_task.upstream_tasks)
+                num_arrived = len(self.merge_arrivals[downstream_task.task_id])
+                
+                if num_arrived == num_expected:
+                    # All branches arrived - create single cursor for merge
+                    # Merge will receive all contexts, not just one
+                    new_cursor = Cursor(
+                        id=self.next_cursor_id,
+                        current_task=downstream_task,
+                        context=result_context,  # Last context (merge will get all from merge_arrivals)
+                        batch_id=cursor.batch_id
+                    )
+                    self.next_cursor_id += 1
+                    new_cursors.append(new_cursor)
+                # else: wait for more branches
+            else:
+                # Normal downstream or fork branch - create cursor
+                # Copy context if this is a fork (parallel branches need independent contexts)
+                branch_context = self._copy_context(result_context) if is_fork else result_context
+                new_cursor = Cursor(
+                    id=self.next_cursor_id,
+                    current_task=downstream_task,
+                    context=branch_context,
+                    batch_id=cursor.batch_id
+                )
+                self.next_cursor_id += 1
+                new_cursors.append(new_cursor)
+        
+        return new_cursors
+    
+    def _get_ready_cursors(self) -> List[Cursor]:
+        """Get cursors whose tasks can execute now (dependencies satisfied).
+        
+        Note: Works around DSL parser bug that creates duplicate upstreams.
+        """
+        ready = []
+        for cursor in self.cursors:
+            task = cursor.current_task
+            
+            # Skip if already completed
+            if task.task_id in self.completed_tasks:
+                continue
+            
+            # For merge connectors, check if all inputs have arrived
+            # Deduplicate upstream_tasks to work around DSL parser bug
+            if isinstance(task, Connector) and len(task.upstream_tasks) > 1:
+                # This is a merge point - deduplicate upstreams
+                unique_upstreams = list({u.task_id: u for u in task.upstream_tasks}.values())
+                arrivals = self.merge_arrivals.get(task.task_id, [])
+                if len(arrivals) == len(unique_upstreams):
+                    # All inputs ready, this cursor can execute merge
+                    ready.append(cursor)
+            else:
+                # Regular task or fork - can execute immediately
+                ready.append(cursor)
+        
+        return ready
+    
+    def _handle_fork(self, cursor: Cursor, fork_task: Connector) -> List[Cursor]:
+        """Handle fork: spawn new cursors for each output branch."""
+        downstream = self._get_downstream_tasks(fork_task)
+        
+        # Log fork
+        self.debug_logger.log_fork(fork_task, cursor.id, len(downstream))
+        
+        # Create new cursors for each branch
+        new_cursors = []
+        for i, branch_task in enumerate(downstream):
+            new_cursor = Cursor(
+                id=self.next_cursor_id,
+                current_task=branch_task,
+                context=self._copy_context(cursor.context),  # Each branch gets copy
+                batch_id=cursor.batch_id
+            )
+            self.next_cursor_id += 1
+            new_cursors.append(new_cursor)
+            self.debug_logger.log_cursor_spawn(cursor.id, new_cursor.id, branch_task)
+        
+        return new_cursors
+    
+    def _handle_merge(self, cursor: Cursor, merge_task: Connector) -> Optional[Cursor]:
+        """Handle merge: collect cursor at merge point, execute when all arrived.
+        
+        Note: Works around DSL parser bug that creates duplicate upstreams.
+        """
+        # Deduplicate upstreams to work around DSL parser bug
+        unique_upstreams = list({u.task_id: u for u in merge_task.upstream_tasks}.values())
+        
+        # Record arrival
+        if merge_task.task_id not in self.merge_arrivals:
+            self.merge_arrivals[merge_task.task_id] = []
+        
+        self.merge_arrivals[merge_task.task_id].append((cursor, cursor.context))
+        self.debug_logger.log_merge_arrival(merge_task, cursor.id, 
+                                            len(self.merge_arrivals[merge_task.task_id]), 
+                                            len(unique_upstreams))
+        
+        # Check if all inputs arrived
+        if len(self.merge_arrivals[merge_task.task_id]) == len(unique_upstreams):
+            # All inputs ready - execute merge
+            arrivals = self.merge_arrivals[merge_task.task_id]
+            contexts = [ctx for _, ctx in arrivals]
+            
+            # Execute merge connector
+            merged_context = merge_task.run_connector(contexts)
+            
+            # Create new cursor with merged context
+            new_cursor = Cursor(
+                id=self.next_cursor_id,
+                current_task=merge_task,
+                context=merged_context,
+                batch_id=cursor.batch_id
+            )
+            self.next_cursor_id += 1
+            
+            # Log merge completion
+            cursor_ids = [c.id for c, _ in arrivals]
+            self.debug_logger.log_merge_complete(merge_task, cursor_ids, new_cursor)
+            
+            # Clear arrivals
+            del self.merge_arrivals[merge_task.task_id]
+            
+            return new_cursor
+        else:
+            # Not all inputs arrived yet
+            return None
+    
+    # ========== Graph Building (Legacy, kept for compatibility) ==========
     
     def build_graph(self) -> None:
         """Extract execution graph from connector structure."""
@@ -138,95 +653,122 @@ class PipelineRunner:
         return all(upstream.task_id in completed for upstream in task.upstream_tasks)
     
     def run(self, context: Context) -> Context:
-        """Execute connector with the given context."""
-        logger.info(f"Starting pipeline execution for '{self.connector.task_id}'")
+        """Execute pipeline using cursor-queue model navigating AST."""
+        logger.info(f"Starting cursor-based AST pipeline execution")
         
-        # Propagate collector and trace setting to context and connector
+        # Set running state
+        self._running.set()
+        self._stop_requested.clear()
+        
+        # Store reference to runner in context for tasks to access queues
+        context.pipeline_runner = self
+        
+        # Propagate collector and trace setting to context
         if self.collector:
             context.collector = self.collector
-            self._set_collector_recursive(self.connector, self.collector)
+            for task in self._all_tasks:
+                self._set_collector_recursive(task, self.collector)
         
         # Set up trace recorder on all tasks if tracing enabled
         if self.enable_trace:
             import threading
             self._trace_lock = threading.Lock()
-            self._set_trace_recorder_recursive(self.connector)
+            for task in self._all_tasks:
+                self._set_trace_recorder_recursive(task)
+        
+        # Apply parameter overrides
+        if self.overrides:
+            logger.info(f"Applying parameter overrides to {len(self._all_tasks)} tasks")
+            for task in self._all_tasks:
+                self._apply_overrides(task)
         
         pipeline_timer = self.collector.duration_timer("pipeline.execution.duration", 
-                                                       {"pipeline_id": self.connector.task_id}) if self.collector else None
+                                                       {"pipeline_id": "ast_pipeline"}) if self.collector else None
         
         with pipeline_timer if pipeline_timer else nullcontext():
-            self.build_graph()
-            completed: Set[str] = set()
-            self.task_contexts = {}
+            # Find root tasks from AST structure
+            root_tasks = self._find_root_tasks()
             
-            while len(completed) < len(self.graph):
-                ready_tasks = self.get_ready_tasks(completed)
+            if not root_tasks:
+                logger.error("No root tasks found - pipeline has no entry point")
+                self._running.clear()
+                return context
+            
+            logger.info(f"Starting pipeline with {len(root_tasks)} root task(s): {[t.task_id for t in root_tasks]}")
+            
+            # Create initial cursors at root tasks
+            task_queue = []
+            for root_task in root_tasks:
+                cursor = Cursor(
+                    id=self.next_cursor_id,
+                    current_task=root_task,
+                    context=context,
+                    batch_id=0
+                )
+                self.next_cursor_id += 1
+                task_queue.append(cursor)
+            ready_queue = []
+            completed_tasks: Set[str] = set()
+            final_context = context  # Track latest result context
+            
+            # Main execution loop
+            while task_queue or ready_queue:
+                # Check which cursors are ready to run
+                new_task_queue = []
+                for cursor in task_queue:
+                    if self._is_cursor_ready(cursor, completed_tasks):
+                        ready_queue.append(cursor)
+                        self.debug_logger.log_ready(cursor)
+                    else:
+                        new_task_queue.append(cursor)
+                task_queue = new_task_queue
                 
-                if not ready_tasks:
-                    logger.warning(f"No ready tasks found but {len(self.graph) - len(completed)} tasks remaining - possible deadlock")
+                if not ready_queue:
+                    if task_queue:
+                        logger.warning(f"No ready cursors but {len(task_queue)} waiting - possible deadlock")
                     break
                 
-                logger.info(f"Executing batch: {len(ready_tasks)} tasks ready ({len(completed)}/{len(self.graph)} completed)")
+                # Execute ready cursors in parallel
+                logger.info(f"Executing batch: {len(ready_queue)} cursors ready ({len(completed_tasks)} tasks completed)")
                 
-                # Track parallelism opportunity
-                if self.collector:
-                    self.collector.data_point("pipeline.tasks.ready", {}, len(ready_tasks))
-                
-                futures: List[tuple[Future, BaseTask, float]] = []
-                for task in ready_tasks:
-                    # Import here to avoid circular dependency
-                    from .loop_connector import LoopConnector
-                    
+                futures = []
+                for cursor in ready_queue:
                     submission_time = time.time()
-                    
-                    if isinstance(task, LoopConnector):
-                        # Loop connectors manage their own execution
-                        if task.upstream_tasks:
-                            task_context = self.task_contexts[task.upstream_tasks[0].task_id]
-                        else:
-                            task_context = context
-                        future = self.executor.submit(self._run_task_with_metrics, task, task_context, submission_time)
-                    elif isinstance(task, Connector):
-                        upstream_contexts = [self.task_contexts[upstream.task_id] for upstream in task.upstream_tasks]
-                        future = self.executor.submit(self._run_connector_with_metrics, task, upstream_contexts, submission_time)
-                    else:
-                        if task.upstream_tasks:
-                            upstream_task = task.upstream_tasks[0]
-                            if isinstance(upstream_task, Connector) and upstream_task.split_contexts:
-                                upstream_index = upstream_task.output_tasks.index(task)
-                                task_context = upstream_task.split_contexts[upstream_index]
-                            else:
-                                task_context = self.task_contexts[upstream_task.task_id]
-                        else:
-                            task_context = context
-                        future = self.executor.submit(self._run_task_with_metrics, task, task_context, submission_time)
-                    
-                    futures.append((future, task, submission_time))
+                    future = self.executor.submit(self._run_task_with_metrics, cursor, submission_time)
+                    futures.append((future, cursor, submission_time))
                 
-                for future, task, submission_time in futures:
+                ready_queue = []
+                
+                # Collect results and advance cursors
+                for future, cursor, submission_time in futures:
                     result_context = future.result()
-                    self.task_contexts[task.task_id] = result_context
-                    completed.add(task.task_id)
+                    completed_tasks.add(cursor.current_task.task_id)
+                    final_context = result_context  # Track latest
                     
-                    # Track context data size
-                    if self.collector and result_context:
-                        for data_type, data in result_context.data.items():
-                            self.collector.data_point("context.data.count", 
-                                                     {"data_type": data_type.type_name}, 
-                                                     len(data) if data else 0)
-            
-            sink_tasks = [t for t in self.graph if not any(t in other.upstream_tasks for other in self.graph)]
-            if sink_tasks:
-                logger.info(f"Pipeline execution complete. Returning context from sink task: {sink_tasks[0].task_id}")
-                return self.task_contexts[sink_tasks[0].task_id]
+                    # Advance cursor to downstream task(s)
+                    new_cursors = self._advance_cursor(cursor, result_context)
+                    task_queue.extend(new_cursors)
+                
+                if self._stop_requested.is_set():
+                    logger.info("Stop requested, halting execution")
+                    break
             
             logger.info("Pipeline execution complete")
-            return context
+            
+            # Clear running state
+            self._running.clear()
+            
+            # Return final context from last executed task
+            return final_context
     
-    def _run_task_with_metrics(self, task: BaseTask, context: Context, submission_time: float = None) -> Context:
-        """Execute a task with metrics tracking."""
+    def _run_task_with_metrics(self, cursor: Cursor, submission_time: float = None) -> Context:
+        """Execute a task with metrics tracking (cursor-based)."""
+        task = cursor.current_task
+        context = cursor.context
         start_time = time.time()
+        
+        # Log execution
+        self.debug_logger.log_exec(cursor, batch_id=cursor.batch_id)
         
         # Log warning if enforced minimum timing is set but not supported
         if hasattr(task, '_enforced_min_ms') and task._enforced_min_ms:
@@ -235,12 +777,9 @@ class PipelineRunner:
         # Log wait time if available
         if submission_time:
             wait_ms = (start_time - submission_time) * 1000
-            logger.info(f"Starting task: {task.task_id} ({type(task).__name__}) [waited {wait_ms:.2f}ms]")
+            logger.info(f"Cursor#{cursor.id} executing: {task.task_id} ({type(task).__name__}) [waited {wait_ms:.2f}ms]")
         else:
-            logger.info(f"Starting task: {task.task_id} ({type(task).__name__})")
-        
-        # Record trace event before execution with submission time
-        task._record_trace('execute', submission_time)
+            logger.info(f"Cursor#{cursor.id} executing: {task.task_id} ({type(task).__name__})")
         
         if self.collector:
             task._record_start()  # Record start time for cooperative timing
@@ -248,7 +787,18 @@ class PipelineRunner:
             with self.collector.duration_timer("task.execution.duration", 
                                               {"task_id": task.task_id, "task_type": type(task).__name__}):
                 try:
-                    result = task.run(context)
+                    # Check if this is a merge task (Connector with multiple upstreams)
+                    is_merge = isinstance(task, Connector) and len(task.upstream_tasks) > 1
+                    if is_merge and task.task_id in self.merge_arrivals:
+                        contexts = self.merge_arrivals[task.task_id]
+                        result = task.run_connector(contexts)
+                        # Clear merge state after execution
+                        del self.merge_arrivals[task.task_id]
+                    else:
+                        result = task.run(context)
+                    
+                    # Record trace event after execution with task's exit code
+                    task._record_trace('execute', submission_time, exit_code=task.exit_code)
                     
                     # Check if task timed out
                     if task.time_budget_ms and not task.should_continue():
@@ -261,6 +811,11 @@ class PipelineRunner:
                     return result
                 except Exception as e:
                     logger.error(f"Task {task.task_id} failed with {type(e).__name__}: {e}")
+                    
+                    # Record trace with exception exit code
+                    task.exit_code = 2  # Exception = exit code 2
+                    task._record_trace('execute', submission_time, exit_code=task.exit_code)
+                    
                     self.collector.data_point("task.execution.count", 
                                              {"task_id": task.task_id, "status": "failure"}, 1)
                     self.collector.data_point("task.failures", 
@@ -269,11 +824,28 @@ class PipelineRunner:
         else:
             task._record_start()
             try:
-                result = task.run(context)
+                # Check if this is a merge task (Connector with multiple upstreams)
+                is_merge = isinstance(task, Connector) and len(task.upstream_tasks) > 1
+                if is_merge and task.task_id in self.merge_arrivals:
+                    contexts = self.merge_arrivals[task.task_id]
+                    result = task.run_connector(contexts)
+                    # Clear merge state after execution
+                    del self.merge_arrivals[task.task_id]
+                else:
+                    result = task.run(context)
+                
+                # Record trace event after execution with task's exit code
+                task._record_trace('execute', submission_time, exit_code=task.exit_code)
+                
                 logger.info(f"Completed task: {task.task_id}")
                 return result
             except Exception as e:
                 logger.error(f"Task {task.task_id} failed with {type(e).__name__}: {e}")
+                
+                # Record trace with exception exit code
+                task.exit_code = 2  # Exception = exit code 2
+                task._record_trace('execute', submission_time, exit_code=task.exit_code)
+                
                 raise
     
     def _run_connector_with_metrics(self, connector: Connector, contexts: List[Context], submission_time: float = None) -> Context:
@@ -1400,12 +1972,11 @@ if __name__ == "__main__":
             # Import required modules
             from ..utils.config import VLMChatConfig
             from ..models.MobileClip.clip_model import CLIPModel
-            from ..models.MobileClip.clip_config import ClipConfig
             from PIL import Image
             import numpy as np
             from ..object_detector.detection_base import Detection
             
-            # Initialize MobileCLIP model
+            # Initialize MobileCLIP model...
             print("\nInitializing MobileCLIP model...")
             config = VLMChatConfig()
             

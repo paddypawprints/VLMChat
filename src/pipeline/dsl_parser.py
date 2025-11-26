@@ -5,26 +5,46 @@ Implements lexer, parser, and builder for the VLMChat Pipeline DSL.
 Converts DSL text to executable pipeline objects.
 
 Grammar:
-    pipeline         ::= task_sequence | loop
-    task_sequence    ::= task ( "->" task )*
-    task             ::= regular_task | control_task | parallel | loop
-    regular_task     ::= identifier "(" params? ")"
-    control_task     ::= ":"? identifier "(" params? ")" ":"?
-    parallel         ::= "[" parallel_body "]"
-    parallel_body    ::= split_op? task_list merge_op?
-    split_op         ::= identifier "():"
-    merge_op         ::= ":" identifier "()"
-    task_list        ::= task ( "," task )*
-    loop             ::= "{" task_sequence "}"
-    params           ::= param ( "," param )*
-    param            ::= identifier "=" value
-    value            ::= string | number | boolean
+    pipeline          ::= task_sequence | loop_pipeline | parallel_pipeline
+    task_sequence     ::= task ( "->" pipeline )*
+    loop_pipeline     ::= "{" loop_sequence "}"
+    loop_sequence     ::= loop_item ( "->" loop_item )*
+    loop_item         ::= operator | pipeline
+    operator          ::= ":" task ":"
+    task              ::= identifier "(" params? ")"
+    parallel_pipeline ::= "[" operator? pipeline_list operator? "]"
+    pipeline_list     ::= pipeline ( "," pipeline )*
+    params            ::= param ( "," param )*
+    param             ::= identifier "=" value
+    value             ::= string | number | boolean
+    
+Key features:
+    - Fully recursive: any pipeline can contain any other pipeline type
+    - Operators always use :task: syntax (no ambiguity)
+    - Control operators only valid in loop_sequence
+    - Split/merge operators only valid in parallel_pipeline
+    
+Examples:
+    # Task sequence
+    task_a() -> task_b() -> task_c()
+    
+    # Loop with operator
+    {input() -> :break_on(code=1): -> process()}
+    
+    # Parallel with merge operator
+    [task_a(), task_b() :ordered_merge(order="0,1"):]
+    
+    # Nested structures
+    {task() -> [parallel_a(), parallel_b()] -> task()}
 """
 
 import re
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class TokenType(Enum):
@@ -154,7 +174,10 @@ class Lexer:
 @dataclass
 class ASTNode:
     """Base class for AST nodes."""
-    pass
+    
+    def accept(self, visitor: 'Visitor') -> Any:
+        """Accept a visitor (Visitor pattern)."""
+        raise NotImplementedError(f"{type(self).__name__} must implement accept()")
 
 
 @dataclass
@@ -167,12 +190,19 @@ class TaskNode(ASTNode):
     enforced_min_ms: Optional[int] = None   # >= timing (hard constraint)
     line: int = 0
     column: int = 0
+    task: Optional[Any] = None  # Filled by builder: the actual task instance
+    
+    def accept(self, visitor: 'Visitor') -> Any:
+        return visitor.visit_task_node(self)
 
 
 @dataclass
 class SequenceNode(ASTNode):
     """A sequence of tasks."""
     tasks: List[ASTNode]
+    
+    def accept(self, visitor: 'Visitor') -> Any:
+        return visitor.visit_sequence_node(self)
 
 
 @dataclass
@@ -181,6 +211,12 @@ class ParallelNode(ASTNode):
     tasks: List[ASTNode]
     split_strategy: Optional[str] = None
     merge_strategy: Optional[str] = None
+    merge_params: Optional[Dict[str, str]] = None
+    fork_task: Optional[Any] = None   # Filled by builder: ForkConnector
+    merge_task: Optional[Any] = None  # Filled by builder: MergeConnector
+    
+    def accept(self, visitor: 'Visitor') -> Any:
+        return visitor.visit_parallel_node(self)
 
 
 @dataclass
@@ -189,6 +225,30 @@ class LoopNode(ASTNode):
     body: ASTNode
     advisory_time_ms: Optional[int] = None  # ~ timing per iteration
     enforced_min_ms: Optional[int] = None   # >= timing per iteration
+    loop_task: Optional[Any] = None  # Filled by builder: LoopConnector
+    
+    def accept(self, visitor: 'Visitor') -> Any:
+        return visitor.visit_loop_node(self)
+
+
+class Visitor:
+    """Base visitor for traversing AST nodes."""
+    
+    def visit_task_node(self, node: TaskNode) -> Any:
+        """Visit a task node."""
+        raise NotImplementedError()
+    
+    def visit_sequence_node(self, node: SequenceNode) -> Any:
+        """Visit a sequence node."""
+        raise NotImplementedError()
+    
+    def visit_parallel_node(self, node: ParallelNode) -> Any:
+        """Visit a parallel node."""
+        raise NotImplementedError()
+    
+    def visit_loop_node(self, node: LoopNode) -> Any:
+        """Visit a loop node."""
+        raise NotImplementedError()
 
 
 class Parser:
@@ -197,7 +257,7 @@ class Parser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
         self.pos = 0
-        
+    
     def current(self) -> Token:
         """Get current token."""
         return self.tokens[self.pos] if self.pos < len(self.tokens) else self.tokens[-1]
@@ -223,46 +283,88 @@ class Parser:
         return self.parse_pipeline()
     
     def parse_pipeline(self) -> ASTNode:
-        """Parse top-level pipeline."""
-        return self.parse_task_sequence()
-    
-    def parse_task_sequence(self) -> ASTNode:
-        """Parse a sequence of tasks connected by ->."""
-        tasks = [self.parse_task()]
+        """
+        Parse top-level pipeline.
         
-        while self.current().type == TokenType.ARROW:
-            self.consume(TokenType.ARROW)
-            # Skip redundant arrows adjacent to colons
-            if self.current().type != TokenType.ARROW:
-                tasks.append(self.parse_task())
-        
-        return SequenceNode(tasks) if len(tasks) > 1 else tasks[0]
-    
-    def parse_task(self) -> ASTNode:
-        """Parse a single task (regular, control, parallel, or loop)."""
+        Grammar:
+            pipeline ::= task_sequence | loop_pipeline | parallel_pipeline | task
+            task_sequence ::= (task | loop_pipeline | parallel_pipeline) ( "->" pipeline )+
+        """
+        # Parse first element
         token = self.current()
         
-        # Loop
         if token.type == TokenType.LBRACE:
-            return self.parse_loop()
+            first = self.parse_loop_pipeline()
+        elif token.type == TokenType.LBRACKET:
+            first = self.parse_parallel_pipeline()
+        else:
+            first = self.parse_task()
         
-        # Parallel
+        # Check if this is a sequence (has arrows after first element)
+        if self.current().type == TokenType.ARROW:
+            elements = [first]
+            while self.current().type == TokenType.ARROW:
+                self.consume(TokenType.ARROW)
+                # Recursively parse next element
+                elements.append(self.parse_pipeline())
+            return SequenceNode(elements)
+        
+        # Single element (not a sequence)
+        return first
+    
+    def parse_task_sequence(self) -> ASTNode:
+        """
+        Legacy method - now handled by parse_pipeline.
+        Kept for compatibility.
+        """
+        return self.parse_pipeline()
+    
+    def parse_task(self) -> ASTNode:
+        """
+        Parse a single task (used in contexts where loops/parallels not allowed).
+        For general pipeline parsing, use parse_pipeline() instead.
+        """
+        token = self.current()
+        
+        # This should only be called for regular tasks now
+        # Loops and parallels are handled by parse_pipeline
+        if token.type == TokenType.LBRACE:
+            raise SyntaxError(
+                f"Unexpected loop at line {token.line} - loops must be parsed at pipeline level"
+            )
+        
         if token.type == TokenType.LBRACKET:
-            return self.parse_parallel()
+            raise SyntaxError(
+                f"Unexpected parallel block at line {token.line} - parallel blocks must be parsed at pipeline level"
+            )
         
-        # Control or regular task
-        is_control_prefix = token.type == TokenType.COLON
-        if is_control_prefix:
-            self.consume(TokenType.COLON)
+        if token.type == TokenType.COLON:
+            raise SyntaxError(
+                f"Unexpected operator at line {token.line} - operators only allowed in loop context"
+            )
         
         task_node = self.parse_regular_task()
         
-        # Check for trailing colon
-        is_control_suffix = self.current().type == TokenType.COLON
-        if is_control_suffix:
-            self.consume(TokenType.COLON)
+        # Parse optional timing suffix
+        advisory_ms, enforced_min_ms = self.parse_timing()
+        task_node.advisory_time_ms = advisory_ms
+        task_node.enforced_min_ms = enforced_min_ms
         
-        task_node.is_control = is_control_prefix or is_control_suffix
+        return task_node
+    
+    def parse_operator(self) -> TaskNode:
+        """
+        Parse an operator (control task with both colons).
+        
+        Grammar:
+            operator ::= ":" task ":"
+        """
+        self.consume(TokenType.COLON)
+        task_node = self.parse_regular_task()
+        self.consume(TokenType.COLON)
+        
+        # Mark as control task
+        task_node.is_control = True
         
         # Parse optional timing suffix
         advisory_ms, enforced_min_ms = self.parse_timing()
@@ -337,57 +439,63 @@ class Parser:
         
         return advisory_ms, enforced_min_ms
     
-    def parse_parallel(self) -> ParallelNode:
-        """Parse parallel execution block."""
+    def parse_parallel_pipeline(self) -> ParallelNode:
+        """
+        Parse parallel execution block.
+        
+        Grammar:
+            parallel_pipeline ::= "[" operator? pipeline_list operator? "]"
+            pipeline_list ::= pipeline ( "," pipeline )*
+            operator ::= ":" task ":"
+        """
         self.consume(TokenType.LBRACKET)
         
         split_strategy = None
         merge_strategy = None
+        merge_params = None
         
-        # Check for split strategy: identifier():
-        if self.current().type == TokenType.IDENTIFIER and \
-           self.peek(1).type == TokenType.LPAREN and \
-           self.peek(2).type == TokenType.RPAREN and \
-           self.peek(3).type == TokenType.COLON:
+        # Parse optional leading operator (split_op): :identifier():
+        if self.current().type == TokenType.COLON and \
+           self.peek(1).type == TokenType.IDENTIFIER:
+            self.consume(TokenType.COLON)
             split_strategy = self.consume(TokenType.IDENTIFIER).value
             self.consume(TokenType.LPAREN)
             self.consume(TokenType.RPAREN)
             self.consume(TokenType.COLON)
         
-        # Parse task list
-        tasks = [self.parse_task()]
+        # Parse pipeline_list: pipeline ( "," pipeline )*
+        branches = [self.parse_pipeline()]
         while self.current().type == TokenType.COMMA:
             self.consume(TokenType.COMMA)
-            
-            # Check for merge strategy: :identifier()
-            if self.current().type == TokenType.COLON and \
-               self.peek(1).type == TokenType.IDENTIFIER and \
-               self.peek(2).type == TokenType.LPAREN:
-                self.consume(TokenType.COLON)
-                merge_strategy = self.consume(TokenType.IDENTIFIER).value
-                self.consume(TokenType.LPAREN)
-                self.consume(TokenType.RPAREN)
-                break
-            
-            tasks.append(self.parse_task())
+            branches.append(self.parse_pipeline())
         
-        # Check for merge strategy at end: :identifier()
-        if merge_strategy is None and self.current().type == TokenType.COLON:
+        # Parse optional trailing operator (merge_op): :identifier(params?):
+        if self.current().type == TokenType.COLON:
             self.consume(TokenType.COLON)
             merge_strategy = self.consume(TokenType.IDENTIFIER).value
             self.consume(TokenType.LPAREN)
+            if self.current().type != TokenType.RPAREN:
+                merge_params = self.parse_params()
             self.consume(TokenType.RPAREN)
+            self.consume(TokenType.COLON)
         
         self.consume(TokenType.RBRACKET)
         
         return ParallelNode(
-            tasks=tasks,
+            tasks=branches,
             split_strategy=split_strategy,
-            merge_strategy=merge_strategy
+            merge_strategy=merge_strategy,
+            merge_params=merge_params
         )
     
-    def parse_loop(self) -> LoopNode:
-        """Parse loop block."""
+    
+    def parse_loop_pipeline(self) -> LoopNode:
+        """
+        Parse loop pipeline.
+        
+        Grammar:
+            loop_pipeline ::= "{" loop_sequence "}"
+        """
         self.consume(TokenType.LBRACE)
         
         if self.current().type == TokenType.RBRACE:
@@ -395,7 +503,7 @@ class Parser:
                 f"Empty loop body not allowed at line {self.current().line}"
             )
         
-        body = self.parse_task_sequence()
+        body = self.parse_loop_sequence()
         self.consume(TokenType.RBRACE)
         
         # Parse optional timing suffix for loop
@@ -406,6 +514,52 @@ class Parser:
             advisory_time_ms=advisory_ms,
             enforced_min_ms=enforced_min_ms
         )
+    
+    def parse_loop_sequence(self) -> ASTNode:
+        """
+        Parse loop sequence (allows operators and pipelines).
+        
+        Grammar:
+            loop_sequence ::= loop_item ( "->" loop_item )*
+            loop_item ::= operator | pipeline
+            
+        Note: pipeline here means task_sequence, loop_pipeline, or parallel_pipeline,
+        but NOT a task_sequence that consumes arrows (we handle arrows at this level).
+        """
+        items = []
+        
+        # Parse first item
+        if self.current().type == TokenType.COLON:
+            items.append(self.parse_operator())
+        else:
+            # Parse a "pipeline" but not one that consumes arrows
+            # We need to parse a single unit: task, loop, or parallel
+            items.append(self.parse_loop_item_pipeline())
+        
+        # Parse remaining items
+        while self.current().type == TokenType.ARROW:
+            self.consume(TokenType.ARROW)
+            if self.current().type == TokenType.COLON:
+                items.append(self.parse_operator())
+            else:
+                items.append(self.parse_loop_item_pipeline())
+        
+        return SequenceNode(items) if len(items) > 1 else items[0]
+    
+    def parse_loop_item_pipeline(self) -> ASTNode:
+        """
+        Parse a pipeline item within a loop (no arrow consumption).
+        Can be: task, loop_pipeline, or parallel_pipeline.
+        """
+        token = self.current()
+        
+        if token.type == TokenType.LBRACE:
+            return self.parse_loop_pipeline()
+        elif token.type == TokenType.LBRACKET:
+            return self.parse_parallel_pipeline()
+        else:
+            # Just parse a single task (no sequence, no arrow consumption)
+            return self.parse_task()
 
 
 class PipelineBuilder:
@@ -422,27 +576,48 @@ class PipelineBuilder:
         self.task_registry = task_registry
         self.pipeline_dirs = pipeline_dirs or []
         self.task_counter = {}  # Track instances per task type for unique IDs
+        self.task_instances = {}  # Cache task instances by explicit ID
         self.in_loop = False
     
-    def build(self, ast: ASTNode) -> Any:
-        """Build pipeline from AST."""
-        return self._build_node(ast)
+    def build(self, ast: ASTNode) -> ASTNode:
+        """Build pipeline from AST by decorating it with task instances.
+        
+        Returns the decorated AST root node.
+        """
+        # First pass: decorate nodes with tasks and wire upstream_tasks
+        self._decorate_node(ast)
+        
+        # Second pass: wire downstream_tasks (inverse of upstream_tasks)
+        self._wire_downstream_tasks(ast)
+        
+        return ast
     
-    def _build_node(self, node: ASTNode) -> Any:
-        """Build a node into pipeline objects."""
+    def _wire_downstream_tasks(self, node: ASTNode) -> None:
+        """Wire downstream_tasks for all tasks in the AST (second pass)."""
+        # Collect all tasks
+        all_tasks = self._collect_all_tasks_from_node(node)
+        
+        # For each task, populate downstream_tasks based on upstream_tasks
+        for task in all_tasks:
+            for upstream in task.upstream_tasks:
+                if task not in upstream.downstream_tasks:
+                    upstream.downstream_tasks.append(task)
+    
+    def _decorate_node(self, node: ASTNode) -> None:
+        """Decorate an AST node with task instances and wire them together."""
         if isinstance(node, TaskNode):
-            return self._build_task(node)
+            self._decorate_task(node)
         elif isinstance(node, SequenceNode):
-            return self._build_sequence(node)
+            self._decorate_sequence(node)
         elif isinstance(node, ParallelNode):
-            return self._build_parallel(node)
+            self._decorate_parallel(node)
         elif isinstance(node, LoopNode):
-            return self._build_loop(node)
+            self._decorate_loop(node)
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
     
-    def _build_task(self, node: TaskNode) -> Any:
-        """Build a task instance."""
+    def _decorate_task(self, node: TaskNode) -> None:
+        """Create task instance and attach it to the node."""
         # Validate control tasks only in loops
         if node.is_control and not self.in_loop:
             raise SyntaxError(
@@ -483,6 +658,14 @@ class PipelineBuilder:
             unique_id = node.params['id']
             # Remove 'id' from params so it's not passed to configure()
             params_for_configure = {k: v for k, v in node.params.items() if k != 'id'}
+            
+            # Check if we already created this task instance
+            if unique_id in self.task_instances:
+                # Reuse existing instance - reconfigure with new params
+                node.task = self.task_instances[unique_id]
+                if hasattr(node.task, 'configure') and params_for_configure:
+                    node.task.configure(**params_for_configure)
+                return
         else:
             # Generate unique task ID using counter
             if node.name not in self.task_counter:
@@ -515,13 +698,36 @@ class PipelineBuilder:
             # Configure with parameters if supported (excluding 'id')
             if hasattr(task, 'configure') and params_for_configure:
                 task.configure(**params_for_configure)
-            return task
+            
+            # Cache task instance if explicit ID was provided
+            if 'id' in node.params:
+                self.task_instances[unique_id] = task
+                
+                # Validate that all parameters have descriptions
+                if hasattr(task, 'describe_parameters'):
+                    param_descriptions = task.describe_parameters()
+                    for param_name in params_for_configure.keys():
+                        if param_name not in param_descriptions:
+                            logger.warning(
+                                f"Parameter '{param_name}' used in task '{node.name}' at line {node.line} "
+                                f"has no description. Add it to describe_parameters() method."
+                            )
+                        elif not param_descriptions[param_name]:
+                            # Empty string or empty dict
+                            logger.warning(
+                                f"Parameter '{param_name}' in task '{node.name}' at line {node.line} "
+                                f"has empty description. Please provide documentation."
+                            )
+            
+            # Attach task to node
+            node.task = task
+            
         except TypeError as e:
             # Task requires constructor arguments - try common patterns
             if 'timeout_seconds' in str(e) and 'seconds' in node.params:
                 # TimeoutCondition needs timeout_seconds parameter
                 task = task_class(timeout_seconds=node.params['seconds'])
-                return task
+                node.task = task
             else:
                 raise ValueError(
                     f"Error creating task '{node.name}' at line {node.line}: {e}. "
@@ -532,57 +738,87 @@ class PipelineBuilder:
                 f"Error creating task '{node.name}' at line {node.line}: {e}"
             )
     
-    def _build_sequence(self, node: SequenceNode) -> Any:
-        """Build a sequence of tasks with proper wiring."""
-        from src.pipeline.task_base import BaseTask, Connector
+    def _decorate_sequence(self, node: SequenceNode) -> None:
+        """Decorate sequence node: create tasks and wire them sequentially."""
+        # Decorate all child nodes first
+        for child in node.tasks:
+            self._decorate_node(child)
         
-        tasks = []
-        for task_node in node.tasks:
-            task = self._build_node(task_node)
-            if isinstance(task, list):
-                tasks.extend(task)
-            else:
-                tasks.append(task)
-        
-        # Wire tasks sequentially by setting upstream_tasks
-        for i in range(1, len(tasks)):
-            tasks[i].upstream_tasks.append(tasks[i-1])
-        
-        # Return natural structure: single task or list of tasks
-        return tasks[0] if len(tasks) == 1 else tasks
+        # Wire tasks sequentially using upstream_tasks
+        for i in range(1, len(node.tasks)):
+            prev_node = node.tasks[i-1]
+            curr_node = node.tasks[i]
+            
+            # Get the task to wire from (could be in TaskNode.task or ParallelNode.merge_task)
+            prev_task = self._get_exit_task(prev_node)
+            curr_task = self._get_entry_task(curr_node)
+            
+            if prev_task and curr_task:
+                curr_task.upstream_tasks.append(prev_task)
     
-    def _build_parallel(self, node: ParallelNode) -> Any:
-        """Build parallel execution with proper wiring."""
+    def _get_entry_task(self, node: ASTNode) -> Any:
+        """Get the entry (first) task from a node."""
+        if isinstance(node, TaskNode):
+            return node.task
+        elif isinstance(node, ParallelNode):
+            return node.fork_task
+        elif isinstance(node, LoopNode):
+            return node.loop_task
+        elif isinstance(node, SequenceNode):
+            return self._get_entry_task(node.tasks[0]) if node.tasks else None
+        return None
+    
+    def _get_exit_task(self, node: ASTNode) -> Any:
+        """Get the exit (last) task from a node."""
+        if isinstance(node, TaskNode):
+            return node.task
+        elif isinstance(node, ParallelNode):
+            return node.merge_task
+        elif isinstance(node, LoopNode):
+            return node.loop_task
+        elif isinstance(node, SequenceNode):
+            return self._get_exit_task(node.tasks[-1]) if node.tasks else None
+        return None
+    
+    def _decorate_parallel(self, node: ParallelNode) -> None:
+        """Decorate parallel node: create fork/merge and wire branches."""
         from src.pipeline.fork_connector import ForkConnector
         from src.pipeline.task_base import Connector
+        from src.pipeline.connectors import OrderedMergeConnector
         
-        # Build parallel tasks
-        parallel_tasks = [self._build_node(task) for task in node.tasks]
+        # Decorate all branch nodes first
+        for branch_node in node.tasks:
+            self._decorate_node(branch_node)
         
-        # Create fork connector with number of branches
-        fork = ForkConnector(task_id="fork", num_outputs=len(parallel_tasks))
+        # Get entry and exit tasks for each branch
+        branch_entries = [self._get_entry_task(n) for n in node.tasks]
+        branch_exits = [self._get_exit_task(n) for n in node.tasks]
         
-        # Wire parallel tasks: each has fork as upstream
-        for task in parallel_tasks:
-            task.upstream_tasks.append(fork)
+        # Create fork connector
+        fork = ForkConnector(task_id="fork", num_outputs=len(branch_entries))
+        fork.output_tasks = branch_entries
+        node.fork_task = fork
         
-        # Set fork's output tasks
-        fork.output_tasks = parallel_tasks
+        # Wire fork to each branch entry
+        for entry_task in branch_entries:
+            entry_task.upstream_tasks.append(fork)
         
-        # Create merge connector
-        merge = Connector(task_id="merge")
+        # Create merge connector based on strategy
+        if node.merge_strategy == "ordered_merge":
+            merge = OrderedMergeConnector(task_id="merge")
+            if node.merge_params:
+                merge.configure(node.merge_params)
+        else:
+            merge = Connector(task_id="merge")
         
-        # Wire merge: all parallel tasks as upstreams
-        merge.upstream_tasks = parallel_tasks.copy()
+        node.merge_task = merge
         
-        # Set merge's input tasks
-        merge.input_tasks = parallel_tasks.copy()
-        
-        # Return natural structure: list of [fork, tasks..., merge]
-        return [fork, *parallel_tasks, merge]
+        # Wire branch exits to merge
+        merge.upstream_tasks = branch_exits.copy()
+        merge.input_tasks = branch_exits.copy()
     
-    def _build_loop(self, node: LoopNode) -> Any:
-        """Build a loop."""
+    def _decorate_loop(self, node: LoopNode) -> None:
+        """Decorate loop node: create LoopConnector with body tasks."""
         from src.pipeline.loop_connector import LoopConnector
         
         # Set loop context
@@ -590,14 +826,11 @@ class PipelineBuilder:
         self.in_loop = True
         
         try:
-            # Build loop body
-            body = self._build_node(node.body)
+            # Decorate loop body
+            self._decorate_node(node.body)
             
-            # Ensure body is a list of tasks
-            if not isinstance(body, list):
-                body_tasks = [body]
-            else:
-                body_tasks = body
+            # Collect all tasks from body
+            body_tasks = self._collect_all_tasks_from_node(node.body)
             
             # Create loop connector with body tasks
             loop = LoopConnector(body_tasks=body_tasks)
@@ -608,9 +841,30 @@ class PipelineBuilder:
             if node.enforced_min_ms:
                 loop._enforced_min_ms = node.enforced_min_ms
             
-            return loop
+            node.loop_task = loop
         finally:
             self.in_loop = was_in_loop
+    
+    def _collect_all_tasks_from_node(self, node: ASTNode) -> List[Any]:
+        """Collect all task instances from a node tree."""
+        tasks = []
+        if isinstance(node, TaskNode):
+            if node.task:
+                tasks.append(node.task)
+        elif isinstance(node, SequenceNode):
+            for child in node.tasks:
+                tasks.extend(self._collect_all_tasks_from_node(child))
+        elif isinstance(node, ParallelNode):
+            if node.fork_task:
+                tasks.append(node.fork_task)
+            for child in node.tasks:
+                tasks.extend(self._collect_all_tasks_from_node(child))
+            if node.merge_task:
+                tasks.append(node.merge_task)
+        elif isinstance(node, LoopNode):
+            if node.loop_task:
+                tasks.append(node.loop_task)
+        return tasks
 
 
 class DSLParser:
@@ -676,21 +930,50 @@ def create_task_registry() -> Dict[str, type]:
     
     Returns:
         Dict mapping task names to task classes
+
+    TODO make this cleaner and handle errors better than eating ImportErrors.
     """
     # Import all task modules to trigger registration
-    # Tasks in pipeline root
+    # Tasks in pipeline root - import individually to handle failures
     try:
         from . import diagnostic_task
+    except ImportError:
+        pass
+    try:
         from . import diagnostic_condition
+    except ImportError:
+        pass
+    try:
         from . import start_task
+    except ImportError:
+        pass
+    try:
         from . import pass_task
+    except ImportError:
+        pass
+    try:
         from . import context_cleanup_task
+    except ImportError:
+        pass
+    try:
         from . import detector_task
+    except ImportError:
+        pass
+    try:
         from . import smolvlm_task
+    except ImportError:
+        pass
+    try:
         from . import timeout_task
+    except ImportError:
+        pass
+    try:
+        from . import exit_code_condition
+    except ImportError:
+        pass
+    try:
         from . import pipeline
-    except ImportError as e:
-        # Some pipeline tasks may not be available
+    except ImportError:
         pass
     
     # Tasks in tasks/ subdirectory - import individually to handle failures
@@ -700,6 +983,10 @@ def create_task_registry() -> Dict[str, type]:
         pass
     try:
         from .tasks import clip_compare_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import clip_comparator_task
     except ImportError:
         pass
     try:
@@ -723,11 +1010,31 @@ def create_task_registry() -> Dict[str, type]:
     except ImportError:
         pass
     try:
+        from .tasks import test_input_task
+    except ImportError:
+        pass
+    try:
         from .tasks import console_output_task
     except ImportError:
         pass
     try:
+        from .tasks import context_cleanup_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import debug_task
+    except ImportError:
+        pass
+    try:
         from .tasks import detection_expander_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import detection_filter_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import detection_labeler_task
     except ImportError:
         pass
     try:
@@ -743,11 +1050,19 @@ def create_task_registry() -> Dict[str, type]:
     except ImportError:
         pass
     try:
+        from .tasks import image_viewer_task
+    except ImportError:
+        pass
+    try:
         from .tasks import prompt_embedding_source_task
     except ImportError:
         pass
     try:
         from .tasks import prompt_similarity_compare_task
+    except ImportError:
+        pass
+    try:
+        from .tasks import similarity_report_task
     except ImportError:
         pass
     

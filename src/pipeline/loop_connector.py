@@ -115,7 +115,8 @@ class LoopConnector(Connector):
         loop_state = {
             'iteration': 0,
             'start_time': time.time(),
-            'control': LoopControlAction.PASS
+            'control': LoopControlAction.PASS,
+            'last_exit_code': 0  # Track last executed task's exit code
         }
         stack.append(loop_state)
         
@@ -137,9 +138,17 @@ class LoopConnector(Connector):
                     if hasattr(task, '_record_trace') and task._record_trace:
                         task._record_trace('execute')
                     
+                    logger.debug(f"[Loop depth={depth}] Running task {i} ({task.task_id}) in iteration {iteration}")
                     context = task.run(context)
+                    logger.debug(f"[Loop depth={depth}] Task {i} ({task.task_id}) completed in iteration {iteration}")
+                    
+                    # Store task's exit code in loop state for conditions to access
+                    loop_state['last_exit_code'] = task.exit_code
+                    
                 except Exception as e:
+                    import traceback
                     logger.error(f"[Loop depth={depth}] Task {i} ({task.task_id}) failed in iteration {iteration}: {e}")
+                    logger.debug(f"[Loop depth={depth}] Traceback:\n{traceback.format_exc()}")
                     # Break loop on error
                     loop_state['control'] = LoopControlAction.BREAK
                     break

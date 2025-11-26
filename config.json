@@ -6,7 +6,7 @@
     "use_onnx": true,
     "onnx_base_path": "~/onnx",
     "clip_model_name": "MobileCLIP2-S0",
-    "clip_pretrained_path": "src/models/MobileClip/ml-mobileclip/mobileclip2_s0.pt",
+    "clip_pretrained_path": "/Users/patrick/Dev/VLMChat/src/models/MobileClip/ml-mobileclip/mobileclip2_s0.pt",
     "clip_model_kwargs": {"image_mean": [0, 0, 0], "image_std": [1, 1, 1]}
   },
   "conversation": {
@@ -35,7 +35,9 @@
   "paths": {
     "project_root": "None",
     "coco_labels_path": "assets/coco_labels.txt",
-    "captured_images_dir": "captured_images"
+    "captured_images_dir": "captured_images",
+    "pipeline_dirs": ["~/pipelines", "./pipelines"],
+    "metrics_file": "~/metrics.json"
   },
   "platform": "mac"
 }

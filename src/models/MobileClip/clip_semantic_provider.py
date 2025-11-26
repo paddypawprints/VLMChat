@@ -54,11 +54,9 @@ class ClipSemanticProvider(ISemanticCostProvider):
             return
             
         if not self._user_prompts:
-            logger.warning("ClipSemanticProvider: No user prompts provided. Semantic cost will be 1.0")
-            
-        logger.info(f"Building semantic cost matrix for {len(self._yolo_labels)} categories...")
+            logger.info("ClipSemanticProvider: No user prompts provided. Semantic cost will be 1.0")
         
-        try:
+        logger.info(f"Building semantic cost matrix for {len(self._yolo_labels)} categories...")        try:
             # 1. Pre-calculate all prompt embeddings
             self._clip_model.pre_cache_text_prompts(self._user_prompts)
             

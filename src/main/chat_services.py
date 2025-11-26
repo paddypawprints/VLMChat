@@ -8,24 +8,16 @@ handling, image processing, camera capture, and user interface components.
 """
 
 import logging
-from PIL import Image
+import threading
+from typing import Optional, Dict, Any
+import os
 
-from models.SmolVLM.smol_vlm_model import SmolVLMModel
-from models.SmolVLM.model_config import ModelConfig
-from utils.image_utils import load_image_from_url, load_image_from_file
-from src.prompt.prompt import Prompt
-from src.prompt.history_format import HistoryFormat
-#from camera.camera import IMX500ObjectDetection
-from camera.camera_factory import CameraFactory
-from camera.camera_base import BaseCamera
-from metrics.metrics_collector import Collector, Session 
-from metrics.instruments import AverageDurationInstrument, CounterInstrument, HistogramInstrument
+from src.metrics.metrics_collector import Collector
+from src.utils.config import VLMChatConfig
+from .service_response import ServiceResponse
+from .service_response import ServiceResponse as SR
 
 logger = logging.getLogger(__name__)
-
-from utils.config import VLMChatConfig
-from main.service_response import ServiceResponse
-from main.service_response import ServiceResponse as SR
 # ServiceResponse codes are defined in `src/main/service_response.py`.
 # For quick reference:
 #   SR.Code.OK (0)                - Success
@@ -38,260 +30,264 @@ from main.service_response import ServiceResponse as SR
 #   SR.Code.UNKNOWN_COMMAND (7)   - Unrecognized command
 
 class VLMChatServices:
-    """Main application class for SmolVLM chat interface."""
+    """Pipeline execution service for loading and running DSL pipelines."""
     
     def __init__(self, config: VLMChatConfig, collector: Collector):
         """
-        Initialize the chat application with all required components.
-
-        Sets up the model configuration, loads the SmolVLM model with optional ONNX
-        runtime support, initializes the response generator, conversation history
-        manager, and camera interface. Configuration values are loaded from the
-        global application configuration if not explicitly provided.
-
+        Initialize the pipeline execution service.
+        
         Args:
-            model_path: Path to the SmolVLM model on HuggingFace Hub or local path (optional)
-            use_onnx: Whether to use ONNX runtime for faster inference (optional)
-            max_pairs: Maximum number of conversation pairs to keep in history (optional)
-            max_images: Maximum number of images to keep in context (optional)
-            history_format: Format for conversation history (XML, MINIMAL) (optional)
-
-        Raises:
-            Exception: If model loading or component initialization fails
+            config: VLMChatConfig object with application settings
+            collector: Metrics Collector for telemetry
         """
-
         # Configure logging from global configuration
         logging.basicConfig(
             level=getattr(logging, config.logging.level),
             format=config.logging.format
         )
-
-        # Use configuration values if parameters not provided
-        model_path = config.model.model_path
-        use_onnx = config.model.use_onnx
-        max_pairs = config.conversation.max_pairs
-        max_images = config.conversation.max_images
-
-        # Convert string to enum
-        from prompt.history_format import HistoryFormat as ConfigHistoryFormat
-        history_format = ConfigHistoryFormat(config.conversation.history_format.value)
-
-        # Initialize core model components
-        self._config = ModelConfig(config)
-        # Create a metrics collector and pass it into the model for telemetry
-        self._collector = collector
-        self._session = self._collector and self._collector and None
-#        self._session = Session(self._collector)
-
-        file_path = config.paths.metrics_file.expanduser().absolute()
-        if file_path.exists():
-            with open(file_path, 'r') as f:
-                json_data = f.read()
-                self._session = Session.load_instruments_from_json(self._collector, json_data)
-            logger.info(f"Loaded metrics instruments from {file_path}") 
-        else:
-            logger.warning(f"Metrics file not found at {file_path}, starting new session")  
-
-        self._model = SmolVLMModel(config, collector=self._collector)
-
-        # Initialize conversation management
-        self._prompt = Prompt(
-            max_pairs=max_pairs,
-            max_images=max_images,
-            history_format=history_format
-        )
-
-        # Initialize hardware interfaces
-        logger.info(f"Using platform for camera creation: {config.platform}")
-
-        self._camera = CameraFactory.create_camera(config, collector)
         
-        logger.info("SmolVLM Chat Application initialized successfully")
-
-    @property
-    def config(self) -> ModelConfig:
-        """Get the model configuration."""
-        return self._config
-
-    @property
-    def model(self) -> SmolVLMModel:
-        """Get the SmolVLM model instance."""
-        return self._model
-
-    @property
-    def prompt(self) -> Prompt:
-        """Get the prompt manager."""
-        return self._prompt
-
-    @property
-    def camera(self) -> BaseCamera:
-        """Get the camera interface."""
-        return self._camera
-
-    def set_context_format(self, history_format: HistoryFormat) -> None:
-        """
-        Set the conversation history format.
-
-        Args:
-            history_format: New format to use for conversation history
-        """
-        self._prompt.history.set_format(history_format)
+        # Store configuration and collector
+        self._config = config
+        self._collector = collector
+        
+        # Initialize Environment singleton
+        from src.pipeline.environment import Environment
+        self._environment = Environment.get_instance()
+        
+        # Pipeline execution state
+        self._current_pipeline = None
+        self._pipeline_runner = None
+        self._pipeline_thread: Optional[threading.Thread] = None
+        self._pipeline_stop_flag = threading.Event()
+        
+        logger.info("Pipeline execution service initialized successfully")
 
     # --- Service methods (business logic) ---------------------------------
-    # Note: help UI is handled by console_io (app._print_help_message is used)
 
-    def _service_load_url(self, url: str) -> ServiceResponse:
-        image = load_image_from_url(url)
-        if image:
-            self._prompt.current_image = image
-            #self._prompt.history.clear_history()
-            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully.")
-        return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Failed to load image.")
+    def _service_clear_environment(self) -> ServiceResponse:
+        """Clear all environment data."""
+        self._environment.clear()
+        return ServiceResponse(ServiceResponse.Code.OK, "Environment cleared.")
 
-    def _service_load_file(self, path: str) -> ServiceResponse:
-        image = load_image_from_file(path)
-        if image:
-            self._prompt.current_image = image
-            #self._prompt.history.clear_history()
-            return ServiceResponse(ServiceResponse.Code.OK, "Image loaded successfully.")
-        return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Failed to load image.")
-
-    def _service_clear_context(self) -> ServiceResponse:
-        self._prompt.history.clear_history()
-        return ServiceResponse(ServiceResponse.Code.OK, "Conversation history cleared.")
-
-    def _service_show_context(self) -> ServiceResponse:
-        return ServiceResponse(ServiceResponse.Code.OK, str(self._prompt.history))
-
-    def _service_context_stats(self) -> ServiceResponse:
-        stats = self._prompt.history.get_stats()
-        lines = ["Context Buffer Statistics:"]
-        for key, value in stats.items():
-            lines.append(f"  {key}: {value}")
+    def _service_show_environment(self) -> ServiceResponse:
+        """Show all environment keys and their types."""
+        keys = self._environment.keys()
+        if not keys:
+            return ServiceResponse(ServiceResponse.Code.OK, "Environment is empty.")
+        
+        lines = ["Environment Keys:"]
+        for key in sorted(keys):
+            # Parse the key to get value
+            parts = key.split("+")
+            if len(parts) == 3:
+                value = self._environment.get(parts[0], parts[1], parts[2])
+                value_type = type(value).__name__
+                lines.append(f"  {key}: {value_type}")
+            else:
+                lines.append(f"  {key}: (invalid key format)")
         return ServiceResponse(ServiceResponse.Code.OK, "\n".join(lines))
 
-    def _service_format(self, arg: str) -> ServiceResponse:
+    def _service_pipeline(self, dsl_or_file: str) -> ServiceResponse:
+        """Load a pipeline from DSL or file."""
+        from src.pipeline.dsl_parser import DSLParser, create_task_registry
+        
+        # Determine if it's a file or inline DSL
+        is_file = dsl_or_file.endswith('.dsl') or os.path.isfile(dsl_or_file)
+        
         try:
-            new_format = HistoryFormat(arg.strip().lower())
-            self._prompt.history.set_format(new_format)
-            return ServiceResponse(ServiceResponse.Code.OK, f"Context format changed to: {new_format.value}")
-        except (ValueError, KeyError):
-            return ServiceResponse(ServiceResponse.Code.INVALID_FORMAT, "Invalid format. Use: xml or minimal")
-
-    def _service_camera(self) -> ServiceResponse:
-        if self._camera.is_available() and self.capture_from_camera():
-            return ServiceResponse(ServiceResponse.Code.OK, "Image captured and ready for use in conversation")
-        return ServiceResponse(ServiceResponse.Code.CAMERA_FAILED, "Failed to capture image")
-
-    def _service_metrics(self) -> ServiceResponse:
-        sess = getattr(self, '_session', None)
-        if sess is None:
-            return ServiceResponse(ServiceResponse.Code.NO_METRICS_SESSION, "No metrics session")
-        sess_dict = sess.to_dict()
-        out_lines = ["=== Session Metrics ==="]
-        out_lines.append(f"start_time: {sess_dict.get('start_time')}")
-        out_lines.append(f"end_time: {sess_dict.get('end_time')}")
-        insts = sess_dict.get('instruments', [])
-        if not insts:
-            out_lines.append("No instruments attached to the session.")
-        else:
-            for item in insts:
-                ts_name = item.get('timeseries')
-                inst_export = item.get('instrument')
-                out_lines.append(f"Instrument bound to timeseries '{ts_name}':")
-                try:
-                    import json as _json
-                    out_lines.append(_json.dumps(inst_export, indent=2))
-                except Exception:
-                    out_lines.append(str(inst_export))
-        return ServiceResponse(ServiceResponse.Code.OK, "\n".join(out_lines))
-
-    def _service_backend(self, parts: list[str]) -> ServiceResponse:
-        if len(parts) == 1:
-            try:
-                return ServiceResponse(ServiceResponse.Code.OK, f"Current backend: {self._model.current_backend()}")
-            except Exception:
-                return ServiceResponse(ServiceResponse.Code.BACKEND_FAILED, "Failed to query current backend")
-        new_backend = parts[1].strip().lower()
-        try:
-            self._model.set_runtime(new_backend)
-            return ServiceResponse(ServiceResponse.Code.OK, f"Backend switched to: {self._model.current_backend()}")
+            # Get pipeline directories from config
+            pipeline_dirs = [os.path.expanduser(d) for d in self._config.paths.pipeline_dirs]
+            
+            # Create parser with pipeline directories
+            registry = create_task_registry()
+            parser = DSLParser(registry, pipeline_dirs=pipeline_dirs)
+            
+            if is_file:
+                # Load DSL from file
+                file_path = dsl_or_file
+                if not os.path.isabs(file_path):
+                    # Try to find in pipeline directories
+                    for pdir in pipeline_dirs:
+                        candidate = os.path.join(pdir, file_path)
+                        if os.path.isfile(candidate):
+                            file_path = candidate
+                            break
+                
+                if not os.path.isfile(file_path):
+                    return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, f"Pipeline file not found: {dsl_or_file}")
+                
+                with open(file_path, 'r') as f:
+                    dsl_text = f.read()
+                logger.info(f"Loaded pipeline from file: {file_path}")
+            else:
+                # Use as inline DSL
+                dsl_text = dsl_or_file
+                logger.info("Loaded inline pipeline DSL")
+            
+            # Parse the DSL
+            self._current_pipeline = parser.parse(dsl_text)
+            return ServiceResponse(ServiceResponse.Code.OK, f"Pipeline loaded successfully")
+            
         except Exception as e:
-            return ServiceResponse(ServiceResponse.Code.BACKEND_FAILED, f"Failed to switch backend: {e}")
-
-    # _process_command was removed and the interactive loop moved to
-    # main.console_io.run_interactive_chat(app). This class retains only the
-    # service methods; callers should use the console_io helpers to run the
-    # interactive loop.
-
-    def capture_from_camera(self) -> bool:
-        """
-        Capture an image from the camera and load it into the current context.
-
-        Uses the IMX500 camera interface to capture a single image, saves it to disk,
-        and loads it into the conversation context for use in subsequent queries.
-
-        Returns:
-            bool: True if capture successful, False otherwise
-
-        Raises:
-            Exception: Camera or image processing errors are caught and logged
-        """
-        try:
-            filepath, image = self._camera.capture_single_image()
-            self._prompt.current_image = image
-            logger.info(f"Captured image saved to: {filepath}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to capture image: {e}")
-            return False
-
-
-    def process_query(self, user_input: str, stream_output: bool = True) -> str:
-        """
-        Process a user query with the current image and conversation context.
-
-        Takes a user's text input, combines it with the current image and conversation
-        history to generate a contextually aware response using the SmolVLM model.
-
-        Args:
-            user_input: The user's text query or question
-            stream_output: Whether to stream the response as it's generated
-
-        Returns:
-            str: The model's generated response text
-
-        Raises:
-            Exception: Model generation errors are caught and returned as error messages
-        """
-        # Validate that an image is loaded before processing
-        if not self._prompt.current_image:
-            return "No image loaded. Please load an image first."
-
-        logger.info("Processing user query with context")
-
-        # Update the prompt with current user input
-        self._prompt._user_input = user_input
-        messages = self._model.get_messages(self._prompt)
-
-        # Generate response using the model
-        try:
-            response = self._model.generate_response(
-                messages=messages,
-                images=[self._prompt.current_image],
-                stream_output=stream_output
-            )
-
-            # Add this interaction to conversation history
-            self._prompt.history.add_conversation_pair(
-                request_text=user_input,
-                response_text=response
-            )
-
-            logger.info(f"Context stats: {self._prompt.history.get_stats()}")
-            return response
-
-        except Exception as e:
-            logger.error(f"Error during generation: {e}")
-            return f"Error generating response: {e}"
+            logger.error(f"Failed to load pipeline: {e}")
+            return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, f"Failed to load pipeline: {e}")
     
+    def _service_run(self, overrides_str: str) -> ServiceResponse:
+        """Run the currently loaded pipeline with optional overrides."""
+        if self._current_pipeline is None:
+            return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "No pipeline loaded. Use /pipeline first")
+        
+        if self._pipeline_thread is not None and self._pipeline_thread.is_alive():
+            return ServiceResponse(ServiceResponse.Code.IMAGE_LOAD_FAILED, "Pipeline already running. Use /stop first")
+        
+        # Parse overrides (simple key=value pairs)
+        overrides = {}
+        if overrides_str.strip():
+            for pair in overrides_str.split():
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    # Simple parsing - treat as string unless it looks like a number
+                    try:
+                        if '.' in value:
+                            overrides[key.strip()] = float(value)
+                        else:
+                            overrides[key.strip()] = int(value)
+                    except ValueError:
+                        overrides[key.strip()] = value.strip()
+        
+        # Start pipeline in background thread
+        self._pipeline_stop_flag.clear()
+        
+        def run_pipeline():
+            try:
+                from src.pipeline.pipeline_runner import PipelineRunner
+                from src.pipeline.task_base import Context
+                
+                logger.info(f"Starting pipeline execution with overrides: {overrides}")
+                
+                # Create fresh context with config injected
+                context = Context()
+                context.config = self._config
+                context.collector = self._collector
+                
+                # Create runner and execute
+                runner = PipelineRunner(
+                    self._current_pipeline,
+                    collector=self._collector,
+                    enable_trace=True,  # Enable execution tracing
+                    overrides=overrides
+                )
+                
+                # Store runner so console can access queues
+                self._pipeline_runner = runner
+                
+                result = runner.run(context)
+                logger.info("Pipeline execution completed")
+                
+            except Exception as e:
+                logger.error(f"Pipeline execution failed: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                # Clear runner reference when done
+                self._pipeline_runner = None
+        
+        self._pipeline_thread = threading.Thread(target=run_pipeline, daemon=True)
+        self._pipeline_thread.start()
+        
+        return ServiceResponse(ServiceResponse.Code.OK, "Pipeline started")
+    
+    def _service_stop(self) -> ServiceResponse:
+        """Stop the currently running pipeline."""
+        if self._pipeline_thread is None or not self._pipeline_thread.is_alive():
+            return ServiceResponse(ServiceResponse.Code.OK, "No pipeline running")
+        
+        # Request graceful stop via runner if available
+        if self._pipeline_runner:
+            self._pipeline_runner.request_stop()
+        
+        self._pipeline_stop_flag.set()
+        logger.info("Pipeline stop requested")
+        return ServiceResponse(ServiceResponse.Code.OK, "Pipeline stop requested")
+    
+    def _service_status(self) -> ServiceResponse:
+        """Get pipeline execution status."""
+        if self._pipeline_thread is None or not self._pipeline_thread.is_alive():
+            status = "No pipeline running"
+        else:
+            status = "Pipeline is running"
+        
+        if self._current_pipeline is not None:
+            status += "\nPipeline loaded: Yes"
+        else:
+            status += "\nPipeline loaded: No"
+        
+        return ServiceResponse(ServiceResponse.Code.OK, status)
+    
+    def _service_trace(self) -> ServiceResponse:
+        """
+        Display execution trace of last pipeline run.
+        
+        Returns:
+            ServiceResponse with formatted trace output
+        """
+        from src.pipeline.trace import print_trace_events
+        from io import StringIO
+        import sys
+        
+        runner = getattr(self, '_pipeline_runner', None)
+        if runner is None:
+            return ServiceResponse(ServiceResponse.Code.ERROR, "No pipeline has been run yet")
+        
+        if not runner.trace_events:
+            return ServiceResponse(ServiceResponse.Code.OK, "No trace events recorded (tracing may be disabled)")
+        
+        # Capture print_trace_events output
+        old_stdout = sys.stdout
+        sys.stdout = buffer = StringIO()
+        try:
+            print_trace_events(runner.trace_events)
+            output = buffer.getvalue()
+        finally:
+            sys.stdout = old_stdout
+        
+        return ServiceResponse(ServiceResponse.Code.OK, output)
+    
+    def _service_describe(self, task_name: str) -> ServiceResponse:
+        """
+        Get help documentation for a task.
+        
+        Args:
+            task_name: Name of the task to describe (as registered in task registry)
+            
+        Returns:
+            ServiceResponse with formatted task documentation
+        """
+        from src.pipeline.dsl_parser import create_task_registry
+        from src.pipeline.task_help_formatter import TaskHelpFormatter
+        
+        # Get task registry
+        registry = create_task_registry()
+        
+        if task_name not in registry:
+            available = ", ".join(sorted(registry.keys()))
+            return ServiceResponse(
+                ServiceResponse.Code.UNKNOWN_COMMAND,
+                f"Unknown task '{task_name}'. Available tasks: {available}"
+            )
+        
+        # Create a temporary instance of the task
+        task_class = registry[task_name]
+        try:
+            task = task_class(task_id=f"{task_name}_temp")
+        except TypeError:
+            # Some tasks may require constructor arguments
+            task = task_class()
+            task.task_id = f"{task_name}_temp"
+        
+        # Format help
+        formatter = TaskHelpFormatter()
+        help_text = formatter.format_console(task)
+        
+        return ServiceResponse(ServiceResponse.Code.OK, help_text)
+

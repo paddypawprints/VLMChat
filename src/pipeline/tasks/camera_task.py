@@ -4,7 +4,7 @@ Camera task adapter for pipeline integration.
 Wraps a camera instance and adapts it to the pipeline task interface.
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from PIL import Image
 
 from ..task_base import BaseTask, Context, ContextDataType, register_task
@@ -38,19 +38,21 @@ class CameraTask(BaseTask):
         self.input_contract = {}  # Source task, no inputs
         self.output_contract = {ContextDataType.IMAGE: Image.Image}
     
-    def configure(self, params: Dict[str, str]) -> None:
+    def configure(self, **params) -> None:
         """
         Configure camera from parameters (DSL support).
         
         Args:
-            params: Dictionary with camera configuration
+            **params: Keyword arguments with camera configuration
                 - type: Camera type (imx219, imx500, image_library, none)
                 - device: Device identifier (e.g., "0" for /dev/video0)
                 - resolution: Resolution string (e.g., "640x480")
+                - image_path: For type="none", path or URL to image file
                 - Other camera-specific params
         
         Example:
-            task.configure({"type": "imx219", "device": "0", "resolution": "640x480"})
+            task.configure(type="none", image_path="https://example.com/image.jpg")
+            task.configure(type="none", image_path="/path/to/image.jpg")
         """
         if self.camera is not None:
             # Already have a camera, just pass through params
@@ -61,6 +63,7 @@ class CameraTask(BaseTask):
         
         camera_type = params.get("type", "none")
         device_str = params.get("device", "0")
+        image_path = params.get("image_path", None)  # For NoneCamera
         
         # Map type string to CameraModel enum
         camera_model_map = {
@@ -99,14 +102,19 @@ class CameraTask(BaseTask):
         config = VLMChatConfig(camera=camera_config)
         
         # Create camera using factory
-        self.camera = CameraFactory.create_camera(config, self.collector)
+        if camera_model == CameraModel.NONE and image_path:
+            # Special case: NoneCamera with custom image source
+            from ...camera.none_camera import NoneCamera
+            self.camera = NoneCamera(config, self.collector, image_source=image_path)
+        else:
+            self.camera = CameraFactory.create_camera(config, self.collector)
         
         if self.camera is None:
             raise ValueError(f"Failed to create camera with type '{camera_type}'")
     
     def run(self, context: Context) -> Context:
         """
-        Capture image from camera and store in context.
+        Capture image from camera and store in context and environment.
         
         Args:
             context: Pipeline context
@@ -129,9 +137,42 @@ class CameraTask(BaseTask):
             context.data[ContextDataType.IMAGE] = []
         context.data[ContextDataType.IMAGE].append(pil_image)
         
+        # Store in environment using helper method (for chat app and other tasks to access)
+        self.env_set("current_image", pil_image)
+        self.env_set("image_path", filepath)
+        
         # Optionally store filepath as metadata
         if not hasattr(context, 'metadata'):
             context.metadata = {}
         context.metadata['image_path'] = filepath
         
         return context
+    
+    def describe(self) -> str:
+        """Return description of what this task does."""
+        return "Captures an image from a camera device and stores it in the pipeline context and environment."
+    
+    def describe_parameters(self) -> Dict[str, Dict[str, Any]]:
+        """Return parameter descriptions for camera configuration."""
+        return {
+            "type": {
+                "description": "Camera device type",
+                "type": "str",
+                "choices": ["none", "imx219", "imx500", "image_library"],
+                "default": "none",
+                "example": "imx219"
+            },
+            "device": {
+                "description": "Device identifier for camera",
+                "type": "str",
+                "choices": ["0", "1", "camera0", "camera1"],
+                "default": "0",
+                "example": "0"
+            },
+            "resolution": {
+                "description": "Image resolution in WIDTHxHEIGHT format",
+                "type": "str",
+                "format": "WIDTHxHEIGHT (e.g., 640x480, 1920x1080)",
+                "example": "640x480"
+            }
+        }

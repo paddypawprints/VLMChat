@@ -111,6 +111,34 @@ class FashionClipVisionTask(BaseTask):
         Returns:
             Context with EMBEDDINGS added
         """
+        # Get or initialize FashionClip model
+        fashion_clip_model = self.fashion_clip_model
+        if not fashion_clip_model:
+            from ..environment import Environment
+            env = Environment.get_instance()
+            fashion_clip_model = env.get("services", "fashion_clip", "model")
+            
+            # If still not found, try to initialize it
+            if not fashion_clip_model:
+                logger.info(f"Task '{self.task_id}': Initializing FashionClip model...")
+                from ...models.FashionClip.fashion_clip_model import FashionClipModel
+                from ...utils.config import VLMChatConfig
+                
+                # Get config from context if available
+                config = getattr(context, 'config', None)
+                if not config:
+                    config = VLMChatConfig()
+                
+                fashion_clip_model = FashionClipModel(config=config)
+                env.set("services", "fashion_clip", "model", fashion_clip_model)
+                logger.info(f"Task '{self.task_id}': FashionClip model initialized and cached")
+        
+        if not fashion_clip_model:
+            raise ValueError(f"Task '{self.task_id}': fashion_clip_model required")
+        
+        # Use the obtained model
+        self.fashion_clip_model = fashion_clip_model
+        
         # Get image from context
         image_list = context.data.get(ContextDataType.IMAGE)
         if not image_list:
@@ -140,6 +168,9 @@ class FashionClipVisionTask(BaseTask):
                 return context
         
         logger.info(f"Task {self.task_id}: Processing {len(detections)} detections")
+        
+        # Collect detection IDs for pairing with embeddings
+        detection_ids = [det.id for det in detections]
         
         # Crop images for each TOP-LEVEL detection only (ignore children)
         cropped_images = []
@@ -177,13 +208,15 @@ class FashionClipVisionTask(BaseTask):
                 crop_pil = Image.fromarray(crop_array)
                 # Encode single image using runtime
                 emb = runtime.encode_image(crop_pil)
-                # Convert torch tensor to numpy and store
-                embeddings.append(emb.cpu().numpy())
+                # Convert torch tensor to numpy and squeeze to get (D,) shape
+                raw_emb = emb.cpu().numpy().squeeze()
+                embeddings.append(raw_emb)
             
             logger.info(f"Task {self.task_id}: Generated {len(embeddings)} FashionClip embeddings (768-dim)")
             
-            # Store embeddings in context
-            context.data[ContextDataType.EMBEDDINGS] = embeddings
+            # Store as list of [detection_id, embedding] pairs (matching clip_vision format)
+            embedding_pairs = [[det_id, emb] for det_id, emb in zip(detection_ids, embeddings)]
+            context.data[ContextDataType.EMBEDDINGS] = embedding_pairs
             
         except Exception as e:
             logger.error(f"Task {self.task_id}: Error generating FashionClip embeddings: {e}")

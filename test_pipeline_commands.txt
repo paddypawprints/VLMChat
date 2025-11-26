@@ -1,0 +1,6 @@
+# Test pipeline integration
+/load_file src/tests/trail_riders.jpg
+/pipeline test_simple.dsl
+/status
+/run
+/quit

@@ -109,7 +109,9 @@ class ClipSemanticProvider(ISemanticCostProvider):
             return
             
         if not self._user_prompts:
-            logger.warning("ClipSemanticProvider: No user prompts provided. Semantic costs will be 1.0")
+            logger.info("ClipSemanticProvider: No user prompts provided. Semantic costs will be 1.0")
+            self._is_ready = True  # Ready but with default costs
+            return
             
         logger.info(f"Building semantic cost matrices for {len(self._categories)} categories...")
         
@@ -290,6 +292,24 @@ class ClipSemanticProvider(ISemanticCostProvider):
             logger.error(f"Failed to save embeddings file: {e}", exc_info=True)
             return {}
 
+    def update_filter_prompts(self, prompts: List[str]) -> None:
+        """
+        Updates the user prompts for filtering and rebuilds cost matrices.
+        This allows dynamic prompt updates from pipeline context.
+        
+        Args:
+            prompts: New list of text prompts to match against
+        """
+        if prompts == self._user_prompts:
+            return  # No change needed
+        
+        self._user_prompts = prompts
+        
+        # Rebuild matrices if already started
+        if self._is_ready:
+            logger.info(f"Updating filter prompts to: {prompts}")
+            self.start()  # Rebuild matrices with new prompts
+    
     def stop(self) -> None:
         """Clears the cost matrix."""
         self._pair_cost_matrix.clear()

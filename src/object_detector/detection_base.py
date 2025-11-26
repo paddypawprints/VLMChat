@@ -65,6 +65,10 @@ class Detection:
         self.object_category = object_category
         self.conf = conf
         self.children: List['Detection'] = []
+        
+        # Optional attributes for CLIP/FashionCLIP labeling
+        self.matched_prompts: Optional[List[str]] = None
+        self.match_probabilities: Optional[List[float]] = None
 
     @classmethod
     def deserialize(cls, data: dict) -> 'Detection':
@@ -86,10 +90,59 @@ class Detection:
         # Call __init__ which will assign a new ID.
         detection = cls(box, object_category, conf=conf)
         detection.children = children
+        
+        # Load optional matched prompts and probabilities if present
+        if 'matched_prompts' in data:
+            detection.matched_prompts = data['matched_prompts']
+        if 'match_probabilities' in data:
+            detection.match_probabilities = data['match_probabilities']
+        
         return detection
 
     def add_child(self, detection: 'Detection' ) -> None:
         self.children.append(detection)
+    
+    def to_dict(self) -> dict:
+        """
+        Serialize Detection to dictionary for pickling/serialization.
+        
+        Returns:
+            Dictionary with all detection attributes including children
+        """
+        return {
+            'id': self.id,
+            'box': self.box,
+            'object_category': self.object_category,
+            'conf': self.conf,
+            'matched_prompts': self.matched_prompts,
+            'match_probabilities': self.match_probabilities,
+            'children': [child.to_dict() for child in self.children]
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Detection':
+        """
+        Reconstruct Detection from dictionary.
+        
+        Note: Restores original ID (unlike deserialize which assigns new ID).
+        
+        Args:
+            data: Dictionary from to_dict()
+        
+        Returns:
+            Detection instance with original ID preserved
+        """
+        det = cls(
+            box=tuple(data['box']),
+            object_category=data['object_category'],
+            conf=data['conf']
+        )
+        # Restore original ID (important for deduplication)
+        det.id = data['id']
+        det.matched_prompts = data.get('matched_prompts')
+        det.match_probabilities = data.get('match_probabilities')
+        det.children = [cls.from_dict(c) for c in data.get('children', [])]
+        return det
 
     def __repr__(self) -> str:
         """
@@ -102,10 +155,18 @@ class Detection:
         Returns an informal, human-readable string representation.
         """
         child_count = len(self.children)
+        base_str = f"[ID {self.id}] '{self.object_category}' (conf: {self.conf:.2f}) at {self.box}"
+        
         if child_count > 0:
-            return f"[ID {self.id}] Cluster '{self.object_category}' (conf: {self.conf:.2f}) at {self.box} [{child_count} children]"
-        else:
-            return f"[ID {self.id}] '{self.object_category}' (conf: {self.conf:.2f}) at {self.box}"
+            base_str += f" [{child_count} children]"
+        
+        # Add matched prompts if available
+        if self.matched_prompts and self.match_probabilities:
+            matches_str = ", ".join([f"{p} ({prob:.3f})" for p, prob in 
+                                     zip(self.matched_prompts, self.match_probabilities)])
+            base_str += f" | Matches: {matches_str}"
+        
+        return base_str
 
 
     def compare(self, other: Any) -> bool: # Renamed from is_equivalent

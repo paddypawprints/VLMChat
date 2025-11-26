@@ -102,8 +102,8 @@ class ContextCleanupTask(BaseTask):
             # Explicit list
             types_to_keep = self.keep_types
         elif self.auto_keep_immutable:
-            # All immutable types
-            types_to_keep = [dt for dt in ContextDataType if not dt.is_mutable]
+            # All types (mutable/immutable distinction removed)
+            types_to_keep = list(ContextDataType)
         else:
             # Keep nothing
             types_to_keep = []
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     
     print(f"Original context has {len(ctx.data)} data types:")
     for dt in ctx.data.keys():
-        print(f"  - {dt.type_name} (mutable={dt.is_mutable})")
+        print(f"  - {dt.type_name}")
     
     # Test 1: Auto keep immutable
     print("\n--- Test 1: Auto keep immutable ---")

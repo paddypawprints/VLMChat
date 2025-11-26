@@ -2,9 +2,36 @@
 
 ## Overview
 
-The VLMChat pipeline system provides a flexible, DAG-based architecture for composing vision and language processing workflows. It supports parallel execution, metrics collection, and dynamic configuration through a factory pattern with plans for DSL-based pipeline definitions.
+The VLMChat pipeline system provides a flexible, DAG-based architecture for composing vision and language processing workflows. It features a **three-phase execution model** with clean separation between syntax (DSL), semantics (task instantiation), and execution (cursor-based runtime).
+
+**Architecture Philosophy:**
+- **Parser**: Builds Abstract Syntax Tree (AST) from DSL
+- **Builder**: Decorates AST with task instances and wires execution graph  
+- **Runner**: Executes via cursor-queue model navigating doubly-linked task graph
+
+This separation enables DSL validation, visualization, and optimization while maintaining efficient runtime execution.
 
 ## Core Concepts
+
+### Three-Phase Pipeline Architecture
+
+**Phase 1: Parser (DSL → AST)**
+- Lexer tokenizes DSL text into operators, identifiers, literals
+- Parser builds Abstract Syntax Tree (syntax structure)
+- Nodes: TaskNode, SequenceNode, ParallelNode, LoopNode
+- No task instantiation at this phase - pure syntax
+
+**Phase 2: Builder (AST → Decorated AST)**
+- First pass: Decorates AST nodes with task instances
+- Wires `upstream_tasks` based on AST structure
+- Second pass: Wires `downstream_tasks` (inverse of upstream)
+- Result: Doubly-linked execution graph embedded in AST
+
+**Phase 3: Runner (Execution)**
+- Cursor-queue model navigates task graph
+- Multiple cursors can traverse concurrently (pipelining)
+- Merge coordination: multiple cursors wait at merge points
+- Context flows through task graph, not AST
 
 ### Pipeline Components
 
@@ -13,84 +40,343 @@ The VLMChat pipeline system provides a flexible, DAG-based architecture for comp
 - Implements `run(context) -> context` for task execution
 - Supports `configure(params)` for parameter injection from DSL
 - Includes `time_budget_ms` for cooperative timing control
-
-**Connector** - Special task that manages DAG structure
-- Extends `BaseTask` with split/merge capabilities
-- Contains `internal_tasks` and edges between them
-- Implements `split_strategy()` and `merge_strategy()` for data flow
-- Can be nested for complex pipelines
+- **Doubly-linked graph**: `upstream_tasks` and `downstream_tasks` lists
 
 **Context** - Data container passed between tasks
-- Holds typed data via `ContextDataType` enum (IMAGE, PROMPT, RESPONSE, DETECTIONS, etc.)
-- Distinguishes mutable (DETECTIONS, CROPS) vs immutable (IMAGE, PROMPT) data
+- Holds typed data via `ContextDataType` enum (IMAGE, TEXT, DETECTIONS, EMBEDDINGS, etc.)
+- Distinguishes mutable (DETECTIONS, CROPS) vs immutable (IMAGE, TEXT) data
 - Supports `split()` for parallel branches with proper data handling
+- Maintains reference to `pipeline_runner` for I/O queue access
 
-**PipelineRunner** - Orchestrates pipeline execution
-- Flattens connector structure into execution graph
-- Performs topological sort for dependency resolution
-- Executes tasks in parallel where possible (MVP: sequential)
-- Integrates metrics collection and logging
-- Validates contracts at graph build time
+**Cursor** - Execution pointer in task graph
+- Holds `current_task` (not AST node) and `context` (data)
+- Navigates via task's `downstream_tasks` list
+- Multiple cursors enable concurrent pipeline traversal (pipelining)
+- Readiness check: all `upstream_tasks` completed?
 
-**PipelineFactory** - Dynamic task/connector instantiation
-- Registry mapping string names → Python classes
-- `create_task(name, task_id, params)` for dynamic creation
-- `create_connector(name, connector_id, params)` for merge strategies
-- `create_default_factory()` provides pre-registered standard tasks
+**PipelineRunner** - Orchestrates cursor-based execution
+- Cursor-queue model: `task_queue` (waiting) and `ready_queue` (executable)
+- Executes ready cursors in parallel via ThreadPoolExecutor
+- **Merge coordination**: Tracks arriving cursors at merge points
+- **Fork handling**: Copies context independently for each branch
+- Integrates metrics collection and execution tracing
+- **Provides I/O queues for environment-agnostic input/output**
+- Thread-safe state management with Events
+
+**DSL Parser** - Converts text → AST
+- Lexer: Tokenizes DSL into operators, keywords, literals
+- Parser: Recursive descent builds AST (SequenceNode, ParallelNode, etc.)
+- No task instantiation - pure syntax tree
+- Supports loops `{}`, parallel `[]`, control flow `:task():`
+
+**Pipeline Builder** - Decorates AST with tasks
+- Two-pass decoration:
+  1. Create task instances, wire `upstream_tasks`
+  2. Wire `downstream_tasks` (reverse links)
+- Task registry maps DSL names → Python classes
+- Parameter injection via `task.configure(**params)`
+- Skips structural nodes (SequenceNode) in execution graph
+
+## Execution Model Summary
+
+**Cursor-Queue Navigation:**
+- **Cursor**: Holds `current_task` (a BaseTask) + `context` (data)
+- **ready_queue**: Cursors ready to execute (dependencies satisfied)
+- **task_queue**: Cursors waiting on dependencies
+- **completed_tasks**: Set of finished task IDs
+
+**Navigation Algorithm:**
+```python
+1. Find root tasks from AST structure
+2. Create initial cursors at root tasks
+3. While cursors remain:
+   a. Check which cursors are ready (all upstreams completed)
+   b. Execute ready cursors in parallel
+   c. Advance: spawn new cursors at downstream_tasks
+   d. Handle fork (copy context) and merge (wait for all branches)
+4. Return final context
+```
+
+**Key Behaviors:**
+- **Fork**: Copies context independently for each branch
+- **Merge**: Waits until all upstream branches complete, then executes merge with all contexts
+- **Concurrent Pipelining**: Multiple cursors traverse graph simultaneously
+- **No AST During Execution**: Runner navigates task graph directly via downstream_tasks
 
 ## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       PipelineRunner                        │
-│  - Flattens DAG structure                                   │
-│  - Validates contracts                                      │
-│  - Executes tasks with dependency resolution                │
-│  - Collects metrics                                         │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                      DSL PIPELINE TEXT                         │
+│  camera() -> detect() -> [clip_text(), clip_vision()] -> merge│
+└───────────────────────────┬────────────────────────────────────┘
                             │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        Connector                            │
-│  ┌────────────┐      ┌────────────┐      ┌────────────┐   │
-│  │   Task A   │─────→│   Task B   │─────→│   Task C   │   │
-│  └────────────┘      └────────────┘      └────────────┘   │
-│                            │                                │
-│                     split_strategy()                        │
-│                            │                                │
-│              ┌─────────────┴─────────────┐                 │
-│              ▼                           ▼                 │
-│     ┌────────────────┐         ┌────────────────┐         │
-│     │ Branch Task 1  │         │ Branch Task 2  │         │
-│     └────────────────┘         └────────────────┘         │
-│              │                           │                 │
-│              └─────────────┬─────────────┘                 │
-│                            │                                │
-│                     merge_strategy()                        │
-│                            ▼                                │
-│                     ┌────────────┐                         │
-│                     │   Task D   │                         │
-│                     └────────────┘                         │
-└─────────────────────────────────────────────────────────────┘
+                   ┌────────▼─────────┐
+                   │  PHASE 1: PARSER │
+                   │  DSL → AST       │
+                   └────────┬─────────┘
+                            │
+                ┌───────────▼──────────────┐
+                │  Abstract Syntax Tree    │
+                │  ┌──────────────────┐   │
+                │  │  SequenceNode    │   │
+                │  │   tasks: [...]   │   │
+                │  │   ├─ TaskNode    │   │
+                │  │   ├─ TaskNode    │   │
+                │  │   └─ ParallelNode│   │
+                │  │      ├─ TaskNode │   │
+                │  │      └─ TaskNode │   │
+                │  └──────────────────┘   │
+                └───────────┬──────────────┘
+                            │
+                   ┌────────▼──────────┐
+                   │ PHASE 2: BUILDER  │
+                   │ Decorate with     │
+                   │ task instances    │
+                   └────────┬──────────┘
+                            │
+            ┌───────────────▼────────────────┐
+            │  Doubly-Linked Task Graph      │
+            │  ┌──────┐    ┌──────┐          │
+            │  │camera│◄──►│detect│          │
+            │  └──┬───┘    └──┬───┘          │
+            │     │           │              │
+            │     │       ┌───▼────┐         │
+            │     │       │  fork  │         │
+            │     │       └───┬────┘         │
+            │     │           │              │
+            │     │     ┌─────┴──────┐       │
+            │     │     │            │       │
+            │     │  ┌──▼───┐    ┌──▼───┐   │
+            │     │  │clip_T│    │clip_V│   │
+            │     │  └──┬───┘    └──┬───┘   │
+            │     │     └─────┬─────┘       │
+            │     │           │             │
+            │     │       ┌───▼────┐        │
+            │     │       │ merge  │        │
+            │     │       └────────┘        │
+            └────────────────┬───────────────┘
+                             │
+                    ┌────────▼──────────┐
+                    │  PHASE 3: RUNNER  │
+                    │  Cursor execution │
+                    └────────┬──────────┘
+                             │
+        ┌────────────────────▼─────────────────────┐
+        │          Cursor-Queue Execution          │
+        │  ready_queue: [Cursor#1@camera]          │
+        │  task_queue:  [Cursor#2@detect]          │
+        │                                           │
+        │  Cursors navigate via downstream_tasks   │
+        │  Multiple cursors = pipelined execution  │
+        │  Merge coordination: wait for all branches│
+        └───────────────────────────────────────────┘
 ```
 
 ## Context Data Types
 
 ```python
 class ContextDataType(Enum):
-    PROMPT = "prompt"           # User text input (immutable)
+    TEXT = "text"               # Text data (user input, model output) - immutable
     IMAGE = "image"             # PIL Image (immutable)
-    RESPONSE = "response"       # Model text output (immutable)
     DETECTIONS = "detections"   # List of Detection objects (mutable)
     CROPS = "crops"             # List of image crops (mutable)
     EMBEDDINGS = "embeddings"   # List of embedding vectors (mutable)
     MATCHES = "matches"         # Semantic matches (mutable)
+    PROMPT_EMBEDDINGS = "prompt_embeddings"  # Text embeddings (immutable)
     AUDIT = "audit"             # Execution metadata (mutable)
 ```
 
 **Mutable vs Immutable:**
-- **Immutable data** (IMAGE, PROMPT, RESPONSE): Shared by reference across branches
-- **Mutable data** (DETECTIONS, CROPS, EMBEDDINGS): Deep-copied when splitting to prevent interference
+- **Immutable data** (IMAGE, TEXT, PROMPT_EMBEDDINGS): Shared by reference across branches
+- **Mutable data** (DETECTIONS, CROPS, EMBEDDINGS, MATCHES): Deep-copied when splitting to prevent interference
+
+## Environment-Agnostic I/O System
+
+The pipeline uses **queue-based I/O coordination** to work seamlessly across console, web services, GUI, or test environments.
+
+### Architecture
+
+**Design Philosophy:**
+- **PipelineRunner knows nothing about the environment** (console, web, GUI)
+- **Tasks use queues instead of direct I/O** (`input()`, `print()`)
+- **External environment feeds/drains queues** and displays results
+- **Thread-safe by design** using `queue.Queue` and `threading.Event`
+
+### Components
+
+**PipelineRunner I/O Interface:**
+```python
+class PipelineRunner:
+    def __init__(self, pipeline):
+        self.input_queue = queue.Queue()   # External → Pipeline
+        self.output_queue = queue.Queue()  # Pipeline → External
+        self._running = threading.Event()  # State: pipeline executing
+        self._stop_requested = threading.Event()  # Graceful shutdown
+    
+    def send_input(self, text: str) -> None:
+        """External environment sends input to pipeline."""
+        self.input_queue.put(text)
+    
+    def get_output(self, timeout: float = 0.1) -> Optional[str]:
+        """External environment polls for output."""
+        try:
+            return self.output_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+    
+    def is_running(self) -> bool:
+        """Check if pipeline is executing."""
+        return self._running.is_set()
+    
+    def request_stop(self) -> None:
+        """Request graceful pipeline shutdown."""
+        self._stop_requested.set()
+```
+
+**ConsoleInputTask:**
+```python
+class ConsoleInputTask(BaseTask):
+    def run(self, context: Context) -> Context:
+        # Get input from runner's queue (not stdin)
+        runner = context.pipeline_runner
+        user_input = runner.input_queue.get(timeout=60)
+        
+        # Store in TEXT context
+        context.data[ContextDataType.TEXT].append(user_input)
+        
+        # Set exit code: 0=success, 1=empty input
+        self.exit_code = 0 if user_input else 1
+        return context
+```
+
+**ConsoleOutputTask:**
+```python
+class ConsoleOutputTask(BaseTask):
+    def run(self, context: Context) -> Context:
+        # Get TEXT from context
+        text = context.data[ContextDataType.TEXT][-1]
+        
+        # Send to runner's queue (not stdout)
+        runner = context.pipeline_runner
+        runner.output_queue.put(text)
+        
+        return context
+```
+
+### Environment Integration
+
+**Console Application:**
+```python
+# Console detects pipeline running and routes I/O
+while True:
+    runner = app._pipeline_runner
+    is_pipeline_running = runner and runner.is_running()
+    
+    # Change prompt: > (command) vs % (pipeline)
+    prompt = "\n% " if is_pipeline_running else "\n> "
+    user_input = input(prompt).strip()
+    
+    if user_input.startswith('/'):
+        # Handle commands normally
+        process_command(user_input)
+    elif is_pipeline_running:
+        # Forward non-command input to pipeline
+        runner.send_input(user_input)
+        
+        # Poll for output and display
+        while True:
+            output = runner.get_output(timeout=0.1)
+            if output is None:
+                break
+            print(output)
+    else:
+        print("Type /help for commands")
+```
+
+**Web Service (Future):**
+```python
+@app.post("/pipeline/input")
+def pipeline_input(text: str):
+    runner.send_input(text)
+    return {"status": "sent"}
+
+@app.get("/pipeline/output")
+def pipeline_output():
+    outputs = []
+    while True:
+        output = runner.get_output(timeout=0.1)
+        if output is None:
+            break
+        outputs.append(output)
+    return {"outputs": outputs}
+```
+
+**GUI (Future):**
+```python
+# User types in text widget
+def on_user_input(text):
+    runner.send_input(text)
+
+# Background thread drains output queue
+def output_poller():
+    while runner.is_running():
+        output = runner.get_output(timeout=0.5)
+        if output:
+            display_widget.append_text(output)
+```
+
+### Benefits
+
+✅ **Environment-Agnostic**: Same pipeline runs in console, web, GUI, tests
+✅ **Thread-Safe**: `queue.Queue` handles concurrent access atomically
+✅ **Clean Separation**: Tasks don't know about console, web, or GUI
+✅ **No Coordination Code**: Queues handle synchronization naturally
+✅ **Simpler Than Alternatives**: No pipes, /dev/tty, or complex IPC
+
+### Thread Safety
+
+**State Management:**
+- `_running` Event: Set when pipeline executing, clear when done
+- `_stop_requested` Event: Set by external `/stop` command
+- Both use atomic operations (no locks needed)
+
+**Queue Operations:**
+- `put()` and `get()` are thread-safe by design
+- Console thread puts to input_queue
+- Pipeline thread gets from input_queue
+- Pipeline thread puts to output_queue
+- Console thread gets from output_queue
+
+**No Race Conditions:**
+- Queue operations are atomic
+- Events use thread-safe primitives
+- Context owned by single pipeline thread
+- No shared mutable state between threads
+
+### Example Pipeline
+
+**SmolVLM Chat (pipelines/smolvlm_chat.dsl):**
+```dsl
+{
+    [camera(type="none"), console_input(prompt="Command: ") -> break_on(code=1)]
+    -> history_update(id="hist", prompt=true, format="simple")
+    -> smolvlm(system_prompt="You are a helpful vision assistant.")
+    -> history_update(id="hist", response=true)
+    -> console_output()
+}
+```
+
+**Execution Flow:**
+1. Console displays `%` prompt (pipeline mode)
+2. User types message, console calls `runner.send_input(message)`
+3. `console_input_task` gets from `input_queue`, adds to TEXT context
+4. History task formats TEXT for model
+5. SmolVLM generates response, adds to TEXT context
+6. History task stores conversation pair
+7. `console_output_task` puts TEXT to `output_queue`
+8. Console polls `get_output()` and prints response
+9. Loop repeats until empty input (triggers `break_on`)
 
 ## Task Adapters
 
@@ -128,56 +414,103 @@ detector = factory.create_task("detector", "yolo", {
 - Output: DETECTIONS (list of Detection objects)
 
 ### ConsoleInputTask
-Captures user text input from console.
+Captures user text input via pipeline runner's input queue.
 
 **Configuration:**
 ```python
 console_input = factory.create_task("console_input", "input1", {
-    "prompt": "You: "  # Text to display
+    "prompt": "You: "  # Text to display (informational only)
 })
 ```
 
 **Contracts:**
 - Input: None (can be source or follow start task)
-- Output: PROMPT (str)
+- Output: TEXT (str)
+
+**Exit Codes:**
+- 0: Non-empty input received (success)
+- 1: Empty input received (can trigger break_on)
+
+**I/O Model:**
+- Gets input from `context.pipeline_runner.input_queue`
+- External environment (console, web, GUI) feeds the queue
+- Blocks with 60-second timeout waiting for input
 
 ### ConsoleOutputTask
-Displays text to console.
+Displays text via pipeline runner's output queue.
 
 **Configuration:**
 ```python
-console_output = factory.create_task("console_output", "output1")
+console_output = factory.create_task("console_output", "output1", {
+    "which": "last"  # Options: "all", "first", "last"
+})
 ```
 
 **Contracts:**
-- Input: RESPONSE (str)
+- Input: TEXT (required)
 - Output: None (sink task)
+
+**I/O Model:**
+- Sends TEXT to `context.pipeline_runner.output_queue`
+- External environment polls queue and displays output
+- Supports outputting "all", "first", or "last" TEXT entries
 
 ### SmolVLMTask
 Runs vision-language model inference.
 
-**Note:** Requires pre-initialized model and prompt objects (dependency injection).
+**Self-Instantiation:**
+- Creates own SmolVLMModel via lazy `@property`
+- No dependency injection required
 
+**Configuration:**
 ```python
-smolvlm = SmolVLMTask(model, prompt, "smolvlm")
+smolvlm = factory.create_task("smolvlm", "vlm1", {
+    "system_prompt": "You are a helpful assistant.",
+    "runtime": "onnx"  # Options: "onnx", "transformers", "auto"
+})
 ```
 
 **Contracts:**
-- Input: IMAGE, PROMPT
-- Output: RESPONSE (str)
+- Input: IMAGE, TEXT (expects TEXT[-2]=history, TEXT[-1]=user_input)
+- Output: TEXT (model response appended to context)
+
+**Operation:**
+- Reads TEXT[-2] for conversation history
+- Reads TEXT[-1] for current user input
+- Builds messages list with system prompt
+- Generates response and appends to TEXT
 
 ### HistoryUpdateTask
-Updates conversation history.
+Updates conversation history with stateful prompt/response modes.
 
-**Note:** Requires pre-initialized history object (dependency injection).
+**State Sharing:**
+- Use explicit `id` parameter to share state across invocations
+- Same `id` reuses task instance (maintains history)
 
+**Configuration:**
 ```python
-history_update = HistoryUpdateTask(history, "history")
+# Pre-model: prepare history + user input
+history_pre = factory.create_task("history_update", "hist", {
+    "id": "hist",           # Required for state sharing
+    "prompt": "true",       # Mode: prepare for model
+    "format": "simple"      # Format: xml, simple, json, markdown
+})
+
+# Post-model: store response
+history_post = factory.create_task("history_update", "hist", {
+    "id": "hist",           # Same ID = same instance
+    "response": "true",     # Mode: store response
+    "max_pairs": "10"       # Optional: limit history
+})
 ```
 
 **Contracts:**
-- Input: PROMPT, RESPONSE
-- Output: None (sink task)
+- Prompt mode: Reads TEXT[-1] (user input), formats history, appends both
+- Response mode: Reads TEXT[-1] (model response), stores in history
+
+**Modes:**
+- **prompt=true**: Pops TEXT[-1], appends formatted_history, appends user_input
+- **response=true**: Reads TEXT[-1], updates last conversation pair
 
 ### StartTask
 Empty source task for split entry points.
@@ -192,42 +525,168 @@ start = factory.create_task("start", "start")
 
 ## Connector Subclasses
 
+Connectors are specialized task types that appear as nodes in the execution graph. They handle **merge strategies** - how to combine multiple input contexts into one output context.
+
 ### Connector (Base)
 Default merge strategy: concatenates mutable data, takes first immutable data.
 
-```python
-connector = factory.create_connector("connector", "main_pipeline")
+**How it works in the execution graph:**
+```
+Task A ─┐
+        ├─> Connector (merge) ─> Next Task
+Task B ─┘
+```
+
+The connector is a normal task node with multiple upstream_tasks. When all upstream tasks complete, the runner calls `run_connector(contexts)` with all incoming contexts.
+
+**DSL Example:**
+```
+[split(): branch_a, branch_b :merge()]
 ```
 
 ### FirstCompleteConnector
 Takes the first branch to complete, ignores others. Useful for race conditions.
 
-```python
-first_complete = factory.create_connector("first_complete", "race")
+**How it works:**
 ```
+Fast Branch ──┐
+              ├─> FirstComplete ──> (only uses first arrival)
+Slow Branch ──┘
+```
+
+The connector executes as soon as the first upstream task completes. Other branches are ignored.
 
 **DSL Example:**
 ```
-[clone_split(): fast_model, accurate_model :first_complete()]
+[split(): fast_model, accurate_model :first_complete()]
 ```
 
 ### OrderedMergeConnector
 Reorders branch results before merging based on configuration.
 
+**How it works:**
 ```python
+# Configuration specifies branch order
 ordered_merge = factory.create_connector("ordered_merge", "merge1", {
     "order": "2,1"  # Process second branch first, then first branch
 })
 ```
 
+Useful when branch execution order doesn't match desired processing order.
+
 **DSL Example:**
 ```
-[clone_split(): high_priority, low_priority :ordered_merge(order=2,1)]
+[split(): high_priority, low_priority :ordered_merge(order=2,1)]
+```
+
+### ForkConnector and MergeConnector
+
+**ForkConnector** - Special task that marks the start of parallel branches:
+- Appears in AST as `ParallelNode.fork_task`
+- When cursor reaches fork, runner **copies context** for each downstream branch
+- Ensures branches have independent data (no mutation interference)
+
+**MergeConnector** - Special task that marks the end of parallel branches:
+- Appears in AST as `ParallelNode.merge_task`
+- Runner uses **merge coordination**: waits for all upstream branches to complete
+- Executes once with all contexts: `run_connector([context1, context2, ...])`
+
+**Execution model:**
+```
+Fork ────┬──> Branch 1 ────┐
+         │                  ├──> Merge
+         └──> Branch 2 ────┘
+         
+# Fork copies context independently for each branch
+# Merge waits until both branches arrive, then combines contexts
 ```
 
 ## Usage Examples
 
-### Example 1: Simple Linear Pipeline
+### Example 1: Simple Linear Pipeline (DSL)
+
+**Recommended approach:** Use DSL for pipeline definition.
+
+```python
+from src.pipeline.dsl_parser import parse_pipeline
+from src.pipeline.pipeline_runner import PipelineRunner
+from src.pipeline.task_base import Context
+
+# Define pipeline in DSL
+dsl_text = """
+camera(type=none, device=0) -> 
+detect(type=yolo_cpu, model=yolov8n.pt, confidence=0.3) -> 
+viewer(type=cv)
+"""
+
+# Parse DSL (Parser creates AST)
+ast_root = parse_pipeline(dsl_text)
+
+# Build decorated AST (Builder wires task graph)
+from src.pipeline.dsl_parser import PipelineBuilder
+builder = PipelineBuilder()
+decorated_ast = builder.build(ast_root)
+
+# Execute pipeline (Runner uses cursor-queue model)
+runner = PipelineRunner(decorated_ast)
+context = Context()
+result = runner.run(context)
+
+# Access results
+detections = result.data.get(ContextDataType.DETECTIONS, [])
+print(f"Found {len(detections)} objects")
+
+runner.shutdown()
+```
+
+**What happens:**
+1. Parser: Tokenizes DSL → Builds AST (SequenceNode with 3 TaskNodes)
+2. Builder: Creates task instances → Wires upstream/downstream links
+3. Runner: Creates cursor at camera_task → Executes → Advances to detector → Advances to viewer
+
+### Example 2: Parallel Branches with Fork/Merge (DSL)
+
+```python
+from src.pipeline.dsl_parser import parse_pipeline
+from src.pipeline.pipeline_runner import PipelineRunner
+from src.pipeline.task_base import Context
+
+# Define parallel pipeline
+dsl_text = """
+[split(): 
+    camera(type=none, device=0), 
+    console_input(prompt="You: ")
+:merge()] -> vlm(type=smolvlm) -> viewer(type=text)
+"""
+
+# Parse and build
+ast_root = parse_pipeline(dsl_text)
+builder = PipelineBuilder()
+decorated_ast = builder.build(ast_root)
+
+# Execute
+runner = PipelineRunner(decorated_ast)
+context = Context()
+result = runner.run(context)
+
+runner.shutdown()
+```
+
+**What happens:**
+1. Parser: Creates ParallelNode with fork/merge tasks
+2. Builder: Wires fork → [camera, console_input] → merge → vlm → viewer
+3. Runner execution:
+   - Cursor reaches fork → **copies context** → spawns 2 cursors
+   - Camera cursor executes camera task
+   - Console cursor executes console_input task
+   - Both cursors reach merge → **merge coordination waits**
+   - When both arrive → merge executes with both contexts → cursor continues to vlm
+
+**Key insight:** Fork copies context independently, merge waits for all branches.
+
+### Example 3: Legacy Factory API (Deprecated)
+
+The old PipelineFactory API still works but is deprecated in favor of DSL:
 
 ```python
 from src.pipeline.pipeline_factory import create_default_factory
@@ -266,111 +725,51 @@ print(f"Found {len(detections)} objects")
 runner.shutdown()
 ```
 
-### Example 2: Parallel VLM Workflow
+**Note:** This API bypasses the three-phase model and directly manipulates the task graph. Use DSL for new development.
+
+### Example 4: Race Condition with FirstComplete (DSL)
+
+Use FirstCompleteConnector to take the fastest result:
 
 ```python
-from src.pipeline.pipeline_factory import create_default_factory
-from src.pipeline.pipeline_runner import PipelineRunner
-from src.pipeline.task_base import Context, ContextDataType
+from src.pipeline.dsl_parser import parse_pipeline
 
-factory = create_default_factory()
+# Define race between fast and accurate detectors
+dsl_text = """
+camera(type=none, device=0) -> 
+[split(): 
+    detect(type=yolo_cpu, model=yolov8n.pt, confidence=0.5),
+    detect(type=yolo_cpu, model=yolov8x.pt, confidence=0.3)
+:first_complete()] -> viewer(type=cv)
+"""
 
-# Create main pipeline
-pipeline = factory.create_connector("connector", "vlm_pipeline")
-
-# Create start task for split
-start = factory.create_task("start", "start")
-
-# Create split connector
-split_connector = factory.create_connector("connector", "splitter")
-split_connector.output_tasks = []  # Will add branches
-
-# Create parallel tasks
-camera = factory.create_task("camera", "cam0", {"type": "none", "device": "0"})
-console_input = factory.create_task("console_input", "input1", {"prompt": "You: "})
-
-# Create merge connector
-merge_connector = factory.create_connector("connector", "merger")
-
-# Create VLM task (requires pre-initialized model and prompt)
-from src.models.SmolVLM.smol_vlm_model import SmolVLMModel
-from src.prompt.prompt import Prompt
-
-model = SmolVLMModel(config)
-prompt_manager = Prompt(config)
-smolvlm = SmolVLMTask(model, prompt_manager, "smolvlm")
-
-# Create output task
-console_output = factory.create_task("console_output", "output1")
-
-# Build graph
-pipeline.add_task(start)
-pipeline.add_task(split_connector)
-pipeline.add_task(camera)
-pipeline.add_task(console_input)
-pipeline.add_task(merge_connector)
-pipeline.add_task(smolvlm)
-pipeline.add_task(console_output)
-
-# Wire edges
-pipeline.add_edge(start, split_connector)
-
-# Split to parallel capture
-split_connector.output_tasks = [camera, console_input]
-pipeline.add_edge(split_connector, camera)
-pipeline.add_edge(split_connector, console_input)
-
-# Merge from parallel branches
-pipeline.add_edge(camera, merge_connector)
-pipeline.add_edge(console_input, merge_connector)
-
-# Continue to VLM and output
-pipeline.add_edge(merge_connector, smolvlm)
-pipeline.add_edge(smolvlm, console_output)
-
-# Run pipeline
-runner = PipelineRunner(pipeline)
-context = Context()
-result = runner.run(context)
-
-runner.shutdown()
+ast_root = parse_pipeline(dsl_text)
+# ... build and run as before
 ```
 
-### Example 3: Race Condition with FirstComplete
+**What happens:**
+- Fast detector (yolov8n) likely completes first
+- FirstComplete connector returns first arrival's context
+- Slow detector (yolov8x) result discarded
+- Useful for latency-sensitive applications with backup computation
 
-```python
-# Create split with two different detectors
-split_connector = factory.create_connector("connector", "splitter")
 
-detector_fast = factory.create_task("detector", "fast", {
-    "type": "yolo_cpu",
-    "model": "yolov8n.pt",
-    "confidence": "0.5"
-})
-
-detector_accurate = factory.create_task("detector", "accurate", {
-    "type": "yolo_cpu", 
-    "model": "yolov8x.pt",
-    "confidence": "0.3"
-})
-
-# Use FirstComplete to take fastest result
-first_complete = factory.create_connector("first_complete", "race")
-
-# Wire up
-split_connector.output_tasks = [detector_fast, detector_accurate]
-# ... add edges ...
-
-# First detector to complete wins, other result discarded
-```
 
 ## Metrics Integration
 
-The pipeline automatically collects metrics when a `Collector` is provided:
+The pipeline automatically collects metrics when a `Collector` is provided. Metrics are initialized from the AST structure during runner initialization.
 
 ```python
 from src.metrics.metrics_collector import Collector, Session
 from src.metrics.instruments import AverageDurationInstrument, CountInstrument
+from src.pipeline.dsl_parser import parse_pipeline, PipelineBuilder
+from src.pipeline.pipeline_runner import PipelineRunner
+
+# Parse DSL
+dsl_text = "camera() -> detect() -> viewer()"
+ast_root = parse_pipeline(dsl_text)
+builder = PipelineBuilder()
+decorated_ast = builder.build(ast_root)
 
 # Create collector and session
 collector = Collector("pipeline_metrics")
@@ -386,8 +785,8 @@ session.add_instrument(
     "task.execution.count"
 )
 
-# Create runner with collector
-runner = PipelineRunner(pipeline, collector=collector)
+# Create runner with collector (passes AST root for initialization)
+runner = PipelineRunner(decorated_ast, collector=collector)
 result = runner.run(context)
 
 # Export metrics
@@ -397,20 +796,34 @@ for ts_name, inst in session._instruments:
 ```
 
 **Collected Metrics:**
-- `task.execution.duration` - Time spent in each task
+- `task.execution.duration` - Time spent in each task (per task_id)
 - `task.execution.count` - Success/failure counts per task
 - `task.failures` - Failure counts by error type
 - `context.data.size` - Size of data in context (when tracked)
 
+**How it works:**
+- Runner initialization walks AST to discover all tasks
+- Instruments bind to task_ids from AST structure
+- Execution records metrics for each cursor advancement
+- Merge coordination properly attributes execution time to merge task
+
 ## Execution Trace
 
-The pipeline can record detailed execution traces for debugging and analysis:
+The pipeline records detailed execution traces for debugging and analysis. Traces survive cursor navigation, fork copying, and merge coordination.
 
 ```python
 from src.pipeline.diagnostic_task import print_trace
+from src.pipeline.dsl_parser import parse_pipeline, PipelineBuilder
+from src.pipeline.pipeline_runner import PipelineRunner
+
+# Parse and build
+dsl_text = "[split(): camera(), console_input() :merge()] -> vlm()"
+ast_root = parse_pipeline(dsl_text)
+builder = PipelineBuilder()
+decorated_ast = builder.build(ast_root)
 
 # Create runner with trace enabled
-runner = PipelineRunner(pipeline, enable_trace=True)
+runner = PipelineRunner(decorated_ast, enable_trace=True)
 result = runner.run(context)
 
 # Display trace
@@ -424,24 +837,24 @@ EXECUTION TRACE
 ======================================================================
         Time |       Thread | Task                 | Upstreams            | Event
 ----------------------------------------------------------------------
-        0.0ms |   8368922816 | task1                | -                    | execute
-       12.3ms |   8368922816 | fork                 | task1                | split
-       15.1ms |   8368922817 | task2                | fork                 | execute
-       15.2ms |   8368922818 | task3                | fork                 | execute
-       28.4ms |   8368922816 | merge                | task2, task3         | merge
-       30.1ms |   8368922816 | task4                | merge                | execute
+        0.0ms |   8368922816 | fork                 | -                    | split
+       12.3ms |   8368922817 | camera               | fork                 | execute
+       15.2ms |   8368922818 | console_input        | fork                 | execute
+       28.4ms |   8368922816 | merge                | camera, console_input | merge
+       30.1ms |   8368922816 | vlm                  | merge                | execute
 ======================================================================
-Total events: 6
+Total events: 5
 ======================================================================
 ```
 
 **Trace Features:**
+- **Cursor-aware**: Each cursor records its execution path
+- **Fork copying**: When fork copies context, trace data is copied independently
+- **Merge coordination**: Merge receives traces from all incoming branches
 - **Chronological timeline**: Events sorted by timestamp
-- **Thread tracking**: Identifies parallel execution
+- **Thread tracking**: Identifies parallel execution (multiple cursors)
 - **Dependency graph**: Shows task relationships via upstreams
-- **Event types**: `execute` (task), `split` (fork), `merge` (join)
-- **Context preservation**: Traces survive splits and merges
-- **Pluggable backends**: InMemoryTrace (default), LogTrace, NoOpTrace
+- **Event types**: `execute` (normal task), `split` (fork), `merge` (join)
 
 **Trace Backends** (see `src/pipeline/trace.py`):
 - `InMemoryTrace`: Store events in context data (default)
@@ -453,14 +866,22 @@ Total events: 6
 # Each event is a tuple:
 (timestamp, thread_id, task_id, upstream_task_ids, event_type)
 # Example:
-(1234567890.123, 8368922816, 'task1', [], 'execute')
-(1234567890.456, 8368922816, 'fork', ['task1'], 'split')
+(1234567890.123, 8368922816, 'camera', ['fork'], 'execute')
+(1234567890.456, 8368922816, 'merge', ['camera', 'console_input'], 'merge')
 ```
 
+**How It Works with Cursors:**
+1. Initial cursor has empty trace
+2. Each task execution adds trace event to cursor's context
+3. Fork copies context → each branch cursor gets independent trace copy
+4. Merge combines traces from all arriving cursors
+5. Final result context contains complete execution history
+
 **Use Cases:**
-- Debug execution order and parallelism
-- Analyze performance bottlenecks
-- Verify pipeline structure
+- Debug cursor navigation and execution order
+- Verify fork/merge coordination working correctly
+- Analyze performance bottlenecks (identify slow tasks)
+- Verify pipeline structure at runtime
 - Monitor production pipelines (with LogTrace)
 
 ## Logging
@@ -582,42 +1003,110 @@ viewer
 <value>        ::= <string> | <number> | <identifier>
 ```
 
-**Parser Status:** Not yet implemented. Factory and configure() support in place.
-
 ## Testing
 
-Run all pipeline tests:
+Run pipeline tests to verify the three-phase architecture:
 
 ```bash
 cd /Users/patrick/Dev/VLMChat
-python -m src.pipeline.pipeline_runner
+
+# Test simple sequence (camera -> detector)
+python test_camera_yolo_viewer.py
+
+# Test parallel fork/merge
+python test_integration_complete.py
+
+# Test CLIP pipeline (complex merge coordination)
+python test_clip_pipeline_build.py
+
+# Run all DSL parser tests
+pytest tests/pipeline/ -v
 ```
 
 **Test Coverage:**
-1. Linear pipeline (source → detector → embedder)
-2. Branching pipeline with split/merge
-3. FirstCompleteConnector
-4. OrderedMergeConnector
-5. PipelineFactory dynamic creation
-6. Factory with configured OrderedMergeConnector
-7. CameraTask + DetectorTask with configure() (requires dependencies)
+1. **Simple Sequence**: camera() -> detect() -> viewer()
+   - Tests: cursor creation, sequential advancement, context flow
+2. **Parallel Fork/Merge**: [split(): branch_a, branch_b :merge()]
+   - Tests: fork context copying, merge coordination, cursor synchronization
+3. **CLIP Pipeline**: Complex merge with 2 branches
+   - Tests: merge coordination correctness, arrival tracking
+4. **Loops**: {camera() -> detect() :break_on(exit_code=1)}
+   - Tests: loop cursor reinjection, exit code handling
+5. **DSL Parser**: Tokenization, AST construction, builder decoration
+   - Tests: visitor pattern, downstream wiring, edge cases
+
+**What Tests Verify:**
+- ✅ Parser creates correct AST structure
+- ✅ Builder wires upstream_tasks and downstream_tasks properly
+- ✅ Runner creates cursors at correct root tasks (from AST)
+- ✅ Fork copies context independently (no mutation interference)
+- ✅ Merge waits for all branches (coordination works)
+- ✅ Final context returned (not initial input)
+- ✅ Trace events survive fork/merge operations
+- ✅ Metrics collect correctly for all task types
+
+**Running Specific Tests:**
+```bash
+# Test AST construction
+pytest tests/pipeline/test_dsl_parser.py::test_ast_construction -v
+
+# Test downstream wiring
+pytest tests/pipeline/test_dsl_parser.py::test_downstream_wiring -v
+
+# Test cursor execution
+pytest tests/pipeline/test_runner.py::test_cursor_advancement -v
+
+# Test merge coordination
+pytest tests/pipeline/test_runner.py::test_merge_coordination -v
+```
 
 ## File Organization
 
+The pipeline system is organized into three main layers matching the architecture:
+
 ```
 src/pipeline/
-├── task_base.py              # Core abstractions (BaseTask, Connector, Context)
-├── pipeline_runner.py        # Execution engine
-├── pipeline_factory.py       # Dynamic instantiation
-├── connectors.py             # Connector subclasses
-├── camera_task.py            # Camera adapter
-├── detector_task.py          # Object detector adapter
-├── console_input_task.py     # Console input adapter
-├── console_output_task.py    # Console output adapter
-├── smolvlm_task.py          # VLM inference adapter
-├── history_update_task.py    # History update adapter
-└── start_task.py            # Empty source task
+├── task_base.py              # Core abstractions (BaseTask, Context)
+│                             # - BaseTask with upstream_tasks + downstream_tasks
+│                             # - Context with data dictionary
+├── dsl_parser.py            # Parser + Builder (DSL → Decorated AST)
+│                             # - Lexer: tokenizes DSL
+│                             # - Parser: builds AST (TaskNode, SequenceNode, etc.)
+│                             # - PipelineBuilder: decorates AST with tasks
+│                             # - Visitor pattern base classes
+├── pipeline_runner.py        # Runner (Cursor-Queue Execution)
+│                             # - Cursor dataclass (current_task + context)
+│                             # - Cursor-queue execution loop
+│                             # - Merge coordination (merge_arrivals)
+│                             # - Fork context copying
+│                             # - Metrics and trace integration
+├── connectors.py            # Connector subclasses (merge strategies)
+│                             # - Connector (base merge)
+│                             # - FirstCompleteConnector
+│                             # - OrderedMergeConnector
+│                             # - ForkConnector (marks parallel start)
+│                             # - MergeConnector (marks parallel end)
+├── loop_connector.py        # Loop execution with exit codes
+├── trace.py                 # Execution trace recording
+│                             # - InMemoryTrace (default)
+│                             # - LogTrace, NoOpTrace (future)
+├── pipeline_factory.py      # Legacy factory API (deprecated)
+└── tasks/
+    ├── camera_task.py           # Camera adapter
+    ├── detector_task.py         # Object detector adapter
+    ├── console_input_task.py    # Console input (queue-based)
+    ├── console_output_task.py   # Console output (queue-based)
+    ├── smolvlm_task.py         # VLM inference adapter
+    ├── history_update_task.py   # History update (dual-mode)
+    ├── break_on_task.py         # Exit code condition
+    └── start_task.py           # Empty source task
 ```
+
+**Key Architectural Files:**
+- `dsl_parser.py`: Implements Parser + Builder phases
+- `pipeline_runner.py`: Implements Runner phase with cursor-queue model
+- `task_base.py`: Defines doubly-linked task graph structure
+- `connectors.py`: Merge strategies appear as tasks in execution graph
 
 ## Pipeline DSL Specification
 
@@ -1180,26 +1669,30 @@ The pipeline architecture supports **both rapid experimentation and production d
 - **Metrics Collection**: Built-in instrumentation for performance analysis
 
 **Production Readiness:**
-- **Remove Decorators**: Unwrap visualization layers for deployment
+- **DSL Configuration**: Production and development configs via parameter overrides
   ```python
-  # Development: with viewer
-  pipeline.add_task(DetectionViewer(clusterer))
+  # Development: low confidence, CPU
+  runner = PipelineRunner(ast, overrides={
+      "detector": {"confidence": 0.3, "device": "cpu"}
+  })
   
-  # Production: direct detector
-  pipeline.add_task(clusterer)
+  # Production: high confidence, GPU
+  runner = PipelineRunner(ast, overrides={
+      "detector": {"confidence": 0.5, "device": "cuda"}
+  })
   ```
 - **Task Contracts**: Type-safe interfaces prevent runtime errors
 - **Time Budgets**: Cooperative timing for real-time constraints
 - **Metrics Export**: Production monitoring with same instrumentation
 
-**Example: DetectionViewer Workflow**
-1. **Prototype**: Add viewer to see what's detected
-2. **Debug**: Adjust clustering parameters visually
-3. **Optimize**: Profile with metrics, tune thresholds
-4. **Deploy**: Remove viewer, keep core detector
+**Example: Development to Production Workflow**
+1. **Prototype**: Define pipeline in DSL with development parameters
+2. **Debug**: Use execution traces to verify cursor flow and merge coordination
+3. **Optimize**: Profile with metrics, tune thresholds via overrides
+4. **Deploy**: Apply production overrides, same AST structure
 5. **Monitor**: Metrics continue tracking performance
 
-This **decorator-based scaffolding** means development tools don't pollute production code - they wrap it temporarily and unwrap cleanly.
+This **configuration-based approach** means development and production use the same pipeline structure - only parameters change.
 
 ### Design Decisions & Trade-offs
 
@@ -1910,24 +2403,46 @@ INFO:pipeline_runner:Configuring task 'main_detector' with overrides: {'confiden
 
 ### DSL Integration
 
-Overrides work with DSL-defined pipelines:
+Overrides work with DSL-defined pipelines through the three-phase model:
 
 ```python
+from src.pipeline.dsl_parser import parse_pipeline, PipelineBuilder
+from src.pipeline.pipeline_runner import PipelineRunner
+
+# Parse DSL (Phase 1: Parser)
 dsl = """
 diagnostic(id="task1", message="Hello", delay_ms=100) ->
 diagnostic(id="task2", message="World", delay_ms=200)
 """
+ast_root = parse_pipeline(dsl)
 
-# Override delay for all tasks
-runner = PipelineRunner.from_dsl(dsl, overrides={
-    "DiagnosticTask.*": {"delay_ms": 50}
+# Build decorated AST (Phase 2: Builder)
+builder = PipelineBuilder()
+decorated_ast = builder.build(ast_root)
+
+# Run with overrides (Phase 3: Runner)
+# Overrides applied during runner initialization via build_graph()
+runner = PipelineRunner(decorated_ast, overrides={
+    "DiagnosticTask.*": {"delay_ms": 50}  # Override all diagnostic tasks
 })
 
-# Override specific task
-runner = PipelineRunner.from_dsl(dsl, overrides={
+# Or override specific task
+runner = PipelineRunner(decorated_ast, overrides={
     "task1": {"message": "Overridden!"}
 })
+
+result = runner.run(context)
 ```
+
+**How it works:**
+1. **Parser**: Parses DSL parameters into AST (e.g., `message="Hello"`)
+2. **Builder**: Creates task instances with DSL parameters
+3. **Runner**: Applies overrides via `task.configure(**merged_overrides)` during `build_graph()`
+4. **Execution**: Cursors execute tasks with final merged parameters
+
+**Override precedence:**
+- DSL parameters < Wildcard overrides < Type-qualified overrides < Simple ID overrides
+- Example: `task1` overrides `DiagnosticTask.task1` overrides `DiagnosticTask.*`
 
 ### Best Practices
 
@@ -1956,3 +2471,323 @@ For questions or issues with the pipeline system:
 3. Verify contracts match between connected tasks
 4. Ensure factory registration for custom tasks
 5. Check metrics for performance bottlenecks
+
+## Environment Singleton - Dictionary-based Key-Value Store
+
+### Overview
+
+The **Environment singleton** provides a general-purpose key-value store for sharing state between pipeline tasks and the chat application. Instead of hardcoded attributes, it uses a dictionary with namespaced keys following the pattern:
+
+```
+{taskType}+{taskId}+{key}
+```
+
+This design allows any task to store/retrieve arbitrary data without modifying the Environment class itself.
+
+### Key Format Examples
+
+- `Camera+cam1+current_image` - Camera task instance "cam1" stores its current image
+- `ObjectDetector+det1+results` - Object detector instance "det1" stores detection results
+- `App+main+history` - Chat application stores conversation history
+- `ImageProcessor+proc1+threshold` - Image processor stores its threshold parameter
+
+### Why Dictionary-based Design?
+
+**✅ Advantages:**
+
+1. **Fully Extensible**: Any task can store/retrieve data without modifying Environment
+2. **Namespace Separation**: Multiple instances of the same task type can coexist
+3. **No Coupling**: Tasks don't need to know about each other's data structures
+4. **Easy Debugging**: `env.keys()` shows all active data
+5. **General Purpose**: Works for any data type (images, configs, results, etc.)
+
+**🎯 Use Cases:**
+
+- **Pipeline Tasks**: Share intermediate results between tasks
+- **State Management**: Store task configuration and runtime state
+- **Cross-component Communication**: Chat app and pipeline system share data
+- **Multi-instance Tasks**: Multiple cameras, detectors, etc. with separate state
+
+### API Reference
+
+#### Core Methods
+
+```python
+from pipeline.environment import Environment
+
+# Get singleton instance
+env = Environment.get_instance()
+
+# Set a value
+env.set("Camera+cam1+current_image", image)
+
+# Get a value
+image = env.get("Camera+cam1+current_image")
+
+# Get with default
+image = env.get("Camera+cam1+current_image", default_image)
+
+# Check if key exists
+if env.has("Camera+cam1+current_image"):
+    image = env.get("Camera+cam1+current_image")
+
+# Alternative syntax using 'in'
+if "Camera+cam1+current_image" in env:
+    image = env.get("Camera+cam1+current_image")
+
+# Remove a key
+removed = env.remove("Camera+cam1+current_image")  # Returns True if removed
+
+# Get all keys
+all_keys = env.keys()
+
+# Get number of keys
+count = len(env)
+
+# Clear all data
+env.clear()
+
+# Reset singleton (mainly for testing)
+Environment.reset()
+```
+
+#### Backward Compatibility
+
+For existing code that used the old attribute-based API:
+
+```python
+# Old style - still works via properties
+env.current_image = image
+env.history = history_manager
+
+# Or via methods
+env.set_image(image)
+env.get_image()
+env.clear_image()
+
+# These map to:
+# "App+main+current_image"
+# "App+main+history"
+```
+
+### Usage Examples
+
+#### Example 1: Camera Task Storing Image
+
+```python
+from pipeline.environment import Environment
+
+class CameraTask:
+    def __init__(self, task_id="cam1"):
+        self.task_id = task_id
+        self.env = Environment.get_instance()
+    
+    def capture(self):
+        image = self.hardware_capture()
+        key = f"Camera+{self.task_id}+current_image"
+        self.env.set(key, image)
+        return image
+```
+
+#### Example 2: Detector Using Camera Image
+
+```python
+from pipeline.environment import Environment
+
+class ObjectDetectorTask:
+    def __init__(self, task_id="det1", camera_id="cam1"):
+        self.task_id = task_id
+        self.camera_id = camera_id
+        self.env = Environment.get_instance()
+    
+    def execute(self):
+        # Get image from camera task
+        image_key = f"Camera+{self.camera_id}+current_image"
+        image = self.env.get(image_key)
+        
+        if image is None:
+            raise ValueError(f"No image available from camera {self.camera_id}")
+        
+        # Run detection
+        results = self.detect_objects(image)
+        
+        # Store results for next task
+        results_key = f"ObjectDetector+{self.task_id}+results"
+        self.env.set(results_key, results)
+        
+        return results
+```
+
+#### Example 3: Multiple Task Instances
+
+```python
+from pipeline.environment import Environment
+
+# Create multiple camera instances
+env = Environment.get_instance()
+
+# Camera 1
+env.set("Camera+cam1+current_image", image1)
+env.set("Camera+cam1+resolution", (1920, 1080))
+
+# Camera 2
+env.set("Camera+cam2+current_image", image2)
+env.set("Camera+cam2+resolution", (640, 480))
+
+# Each maintains separate state
+cam1_image = env.get("Camera+cam1+current_image")
+cam2_image = env.get("Camera+cam2+current_image")
+```
+
+#### Example 4: Configuration Storage
+
+```python
+from pipeline.environment import Environment
+
+class ConfigurableTask:
+    def __init__(self, task_id):
+        self.task_id = task_id
+        self.env = Environment.get_instance()
+        
+        # Store default configuration
+        config_key = f"{self.__class__.__name__}+{task_id}+config"
+        self.env.set(config_key, {
+            "threshold": 0.5,
+            "max_items": 10,
+            "enabled": True
+        })
+    
+    def get_config(self):
+        config_key = f"{self.__class__.__name__}+{self.task_id}+config"
+        return self.env.get(config_key, {})
+    
+    def update_config(self, updates):
+        config = self.get_config()
+        config.update(updates)
+        config_key = f"{self.__class__.__name__}+{self.task_id}+config"
+        self.env.set(config_key, config)
+```
+
+### Best Practices
+
+#### 1. Use Consistent Key Format
+```python
+# Good - consistent format
+key = f"{self.__class__.__name__}+{self.task_id}+{data_name}"
+
+# Also good - explicit task type
+key = f"Camera+{self.task_id}+current_image"
+```
+
+#### 2. Check Before Getting
+```python
+# Good - check existence first
+if env.has(key):
+    value = env.get(key)
+
+# Or use default
+value = env.get(key, default_value)
+```
+
+#### 3. Clean Up When Done
+```python
+# Remove data when no longer needed
+env.remove(f"Task+{task_id}+temp_data")
+
+# Or clear all task data
+for key in env.keys():
+    if key.startswith(f"Task+{task_id}+"):
+        env.remove(key)
+```
+
+#### 4. Document Your Keys
+```python
+class MyTask:
+    """
+    Task that processes images.
+    
+    Environment Keys Used:
+    - Camera+cam1+current_image (input): PIL.Image
+    - MyTask+{task_id}+results (output): List[Dict]
+    - MyTask+{task_id}+config (state): Dict
+    """
+```
+
+### Debugging Tips
+
+#### List All Active Keys
+```python
+env = Environment.get_instance()
+print("Active environment keys:")
+for key in env.keys():
+    value = env.get(key)
+    print(f"  {key}: {type(value).__name__}")
+```
+
+#### Check Data Flow
+```python
+# At task boundaries, log what's being stored/retrieved
+logger.debug(f"Storing result: {key}")
+env.set(key, result)
+
+logger.debug(f"Retrieving input: {key}")
+input_data = env.get(key)
+```
+
+#### Clear Between Pipeline Runs
+```python
+# Clear task-specific data between runs
+def cleanup_task_data(task_id):
+    env = Environment.get_instance()
+    prefix = f"Task+{task_id}+"
+    for key in list(env.keys()):  # Copy list to avoid modification during iteration
+        if key.startswith(prefix):
+            env.remove(key)
+```
+
+### Migration from Old API
+
+If you have existing code using the old attribute-based API:
+
+**Before (Hardcoded Attributes):**
+```python
+env = Environment.get_instance()
+env.current_image = image
+env.history = history
+
+# Access
+image = env.current_image
+history = env.history
+```
+
+**After (Dictionary-based):**
+```python
+env = Environment.get_instance()
+env.set("App+main+current_image", image)
+env.set("App+main+history", history)
+
+# Access
+image = env.get("App+main+current_image")
+history = env.get("App+main+history")
+```
+
+**Backward Compatibility:**
+The old API still works via properties:
+```python
+# This still works!
+env.current_image = image
+image = env.current_image
+
+# Maps to: env.set("App+main+current_image", image)
+```
+
+### Summary
+
+The refactored Environment provides a **general-purpose, extensible key-value store** that:
+- ✅ Works for any task type without code changes
+- ✅ Supports multiple instances of the same task
+- ✅ Maintains backward compatibility
+- ✅ Enables clean namespace separation
+- ✅ Makes debugging easier with `keys()` inspection
+
+This design scales naturally as you add new task types and use cases!

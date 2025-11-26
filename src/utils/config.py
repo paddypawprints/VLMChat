@@ -194,6 +194,10 @@ class PathsConfig(BaseModel):
         default=Path("metrics.json"),
         description="Path to load VLM metrics JSON file"
     )
+    pipeline_dirs: list[str] = Field(
+        default=["~/pipelines", "./pipelines"],
+        description="Directories to search for pipeline DSL files"
+    )
 
     @validator('project_root', pre=True, always=True)
     def set_project_root(cls, v):

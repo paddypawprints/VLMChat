@@ -9,9 +9,17 @@ the chat application with configured parameters.
 
 import sys
 import os
+
+# Suppress warnings early - before any other imports
+# This affects both current process and subprocesses via environment
+if 'PYTHONWARNINGS' not in os.environ:
+    os.environ['PYTHONWARNINGS'] = 'ignore::UserWarning,ignore::FutureWarning,ignore::DeprecationWarning,ignore::ResourceWarning'
+
 import argparse
 from pathlib import Path
 import logging
+import warnings
+
 from utils.config import VLMChatConfig
 from metrics.metrics_collector import Collector
 
@@ -120,6 +128,14 @@ def main():
         level=getattr(logging, config.logging.level),
         format=config.logging.format
     )
+    
+    # Re-enable warnings and stderr if in DEBUG/INFO mode
+    if config.logging.level in ('DEBUG', 'INFO'):
+        os.environ['PYTHONWARNINGS'] = 'default'
+        warnings.resetwarnings()
+    else:
+        # Redirect stderr to devnull to suppress all third-party warnings
+        sys.stderr = open(os.devnull, 'w')
 
     # Log environment information for debugging
     logging.info(f"Using Python: {sys.executable}")

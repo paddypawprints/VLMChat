@@ -8,9 +8,12 @@ Each detector in a chain becomes its own pipeline task for proper metrics and co
 from typing import Optional, List, Dict
 import numpy as np
 from PIL import Image
+import logging
 
 from .task_base import BaseTask, Context, ContextDataType, register_task
 from ..object_detector.detection_base import ObjectDetector, Detection
+
+logger = logging.getLogger(__name__)
 
 
 @register_task('detect')
@@ -56,12 +59,12 @@ class DetectorTask(BaseTask):
         self.input_contract = {ContextDataType.IMAGE: Image.Image}
         self.output_contract = {ContextDataType.DETECTIONS: list}
     
-    def configure(self, params: Dict[str, str]) -> None:
+    def configure(self, **params) -> None:
         """
         Configure detector from parameters (DSL support).
         
         Args:
-            params: Dictionary with detector configuration
+            **params: Keyword arguments with detector configuration
                 - type: Detector type (yolo, yolo_cpu, imx500, clusterer, viewer)
                 - model: Model path (e.g., "yolov8n.pt")
                 - confidence: Confidence threshold (e.g., "0.5")
@@ -74,8 +77,8 @@ class DetectorTask(BaseTask):
                 - semantic_single_weight: Weight for semantic single cost (clusterer only)
         
         Example:
-            task.configure({"type": "yolo", "model": "yolov8n.pt", "confidence": "0.5"})
-            task.configure({"type": "clusterer", "max_clusters": "4", "merge_threshold": "1.5"})
+            task.configure(type="yolo", model="yolov8n.pt", confidence="0.5")
+            task.configure(type="clusterer", max_clusters="4", merge_threshold="1.5")
         """
         if self.detector is not None:
             # Already have a detector
@@ -107,44 +110,93 @@ class DetectorTask(BaseTask):
             self.detector = IMX500Detection()
         
         elif detector_type == "clusterer":
-            # Get source detector from params (required)
-            if "source" not in params:
-                raise ValueError("Clusterer requires 'source' detector in params")
-            
-            source_detector = params["source"]  # Should be an ObjectDetector instance
-            
-            # Get clusterer configuration from params or config
-            max_clusters = int(params.get("max_clusters", "4"))
-            merge_threshold = float(params.get("merge_threshold", "1.5"))
-            proximity_weight = float(params.get("proximity_weight", "1.0"))
-            size_weight = float(params.get("size_weight", "0.5"))
-            semantic_pair_weight = float(params.get("semantic_pair_weight", "1.0"))
-            semantic_single_weight = float(params.get("semantic_single_weight", "0.5"))
-            
-            # Get semantic provider from params (required for clusterer)
-            if "semantic_provider" not in params:
-                raise ValueError("Clusterer requires 'semantic_provider' in params")
-            
-            semantic_provider = params["semantic_provider"]
-            
-            # Create clusterer
-            from ..object_detector.object_clusterer import ObjectClusterer
-            self.detector = ObjectClusterer(
-                source=source_detector,
-                semantic_provider=semantic_provider,
-                max_clusters=max_clusters,
-                merge_threshold=merge_threshold,
-                proximity_weight=proximity_weight,
-                size_weight=size_weight,
-                semantic_weights={
-                    "pair": semantic_pair_weight,
-                    "single": semantic_single_weight
-                }
-            )
+            # Clusterer will be initialized lazily in run() when CLIP model is available
+            # Store params for later initialization
+            self._clusterer_params = params
+            self.detector = None  # Will be created in run()
         
         else:
             raise ValueError(f"Unknown detector type: {detector_type}. "
                            "Supported: yolo, yolo_cpu, imx500, clusterer")
+    
+    def _initialize_clusterer(self, context: Context) -> None:
+        """
+        Lazy initialization of clusterer when CLIP model becomes available.
+        Called from run() on first execution.
+        """
+        params = self._clusterer_params
+        
+        # Get clusterer configuration from params
+        max_clusters = int(params.get("max_clusters", "4"))
+        merge_threshold = float(params.get("merge_threshold", "1.5"))
+        proximity_weight = float(params.get("proximity_weight", "1.0"))
+        size_weight = float(params.get("size_weight", "0.5"))
+        semantic_pair_weight = float(params.get("semantic_pair_weight", "1.0"))
+        semantic_single_weight = float(params.get("semantic_single_weight", "0.5"))
+        
+        # Get semantic provider from environment or create one
+        from ..pipeline.environment import Environment
+        env = Environment.get_instance()
+        
+        semantic_provider = env.get("services", "clip", "semantic_provider")
+        if semantic_provider is None:
+            # Create a basic semantic provider with CLIP model
+            from ..object_detector.semantic_provider import ClipSemanticProvider
+            from ..models.MobileClip.clip_model import CLIPModel
+            from ..utils.config import VLMChatConfig
+            
+            # Get or create CLIP model
+            clip_model = env.get("services", "clip", "model")
+            if clip_model is None:
+                # Initialize CLIP model (same as CLIP tasks do)
+                config = getattr(context, 'config', None) or VLMChatConfig()
+                clip_model = CLIPModel(config=config, collector=None)
+                env.set("services", "clip", "model", clip_model)
+            
+            # Initialize with empty prompts (will be updated from TEXT context)
+            semantic_provider = ClipSemanticProvider(
+                clip_model=clip_model,
+                user_prompts=[],
+                embeddings_cache_path="category_pair_embeddings.json",
+                batch_size=5
+            )
+            semantic_provider.start()
+            
+            # Store in environment for reuse
+            env.set("services", "clip", "semantic_provider", semantic_provider)
+        
+        # Create clusterer - it will get detections from pipeline context, not from a source detector
+        # ObjectClusterer requires a source in __init__, but we'll pass detections via detect() method
+        from ..object_detector.object_clusterer import ObjectClusterer
+        
+        # Create a minimal dummy detector that just returns what it's given
+        class _ContextDetector:
+            """Dummy detector that returns detections from context."""
+            def detect(self, image, detections):
+                return detections
+            def start(self, audit=False):
+                pass
+            def stop(self):
+                pass
+            def readiness(self):
+                return True
+            @property
+            def _ready(self):
+                return True
+        
+        self.detector = ObjectClusterer(
+            source=_ContextDetector(),
+            semantic_provider=semantic_provider,
+            max_clusters=max_clusters,
+            merge_threshold=merge_threshold,
+            proximity_weight=proximity_weight,
+            size_weight=size_weight,
+            semantic_weights={
+                "pair": semantic_pair_weight,
+                "single": semantic_single_weight
+            }
+        )
+        logger.info(f"[{self.task_id}] Clusterer initialized with max_clusters={max_clusters}")
     
     def run(self, context: Context) -> Context:
         """
@@ -159,6 +211,10 @@ class DetectorTask(BaseTask):
         Raises:
             RuntimeError: If detector is not configured
         """
+        # Lazy initialization for clusterer (needs CLIP model from environment)
+        if self.detector is None and hasattr(self, '_clusterer_params'):
+            self._initialize_clusterer(context)
+        
         if self.detector is None:
             raise RuntimeError(f"Task {self.task_id}: Detector not configured. "
                              "Call configure() or pass detector to __init__")
@@ -166,7 +222,9 @@ class DetectorTask(BaseTask):
         # Ensure detector is started (lazy initialization)
         if hasattr(self.detector, 'start') and hasattr(self.detector, '_ready'):
             if not self.detector._ready:
-                self.detector.start()
+                # Enable audit for clusterers
+                audit_enabled = hasattr(self.detector, 'get_last_audit_log')
+                self.detector.start(audit=audit_enabled)
         
         # Get image from context (stored as a list)
         image_list = context.data.get(ContextDataType.IMAGE)
@@ -179,11 +237,23 @@ class DetectorTask(BaseTask):
         # Get existing detections (if any from previous stage)
         existing_detections = context.data.get(ContextDataType.DETECTIONS, [])
         
+        # If this is a clusterer and TEXT is available, update semantic prompts
+        text_data = context.data.get(ContextDataType.TEXT)
+        if text_data and hasattr(self.detector, 'set_text_prompts'):
+            # TEXT is stored as a list of strings
+            prompts = text_data if isinstance(text_data, list) else [text_data]
+            self.detector.set_text_prompts(prompts)
+        
         # Run this detector stage
         # Pass existing detections so the detector can process/filter them
         detections = self.detector.detect(image, existing_detections)
         
         # Store updated detections in context
         context.data[ContextDataType.DETECTIONS] = detections
+        
+        # If this is a clusterer, store audit log in context
+        if hasattr(self.detector, 'get_last_audit_log'):
+            audit_log = self.detector.get_last_audit_log()
+            context.data[ContextDataType.AUDIT] = [str(audit_log)]
         
         return context

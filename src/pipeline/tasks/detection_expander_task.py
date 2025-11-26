@@ -60,16 +60,15 @@ class DetectionExpanderTask(BaseTask):
             ContextDataType.DETECTIONS: list
         }
     
-    def configure(self, params: Dict[str, str]) -> None:
+    def configure(self, **kwargs) -> None:
         """
         Configure from DSL parameters.
         
         Args:
-            params: Configuration parameters
-                - expansion_factor: Expansion percentage (e.g., "0.20" for 20%)
+            expansion_factor: Expansion percentage (e.g., 0.20 for 20%)
         """
-        if "expansion_factor" in params:
-            self.expansion_factor = float(params["expansion_factor"])
+        if "expansion_factor" in kwargs:
+            self.expansion_factor = float(kwargs["expansion_factor"])
     
     def _expand_detection_box(self, detection: Detection, image_width: int, image_height: int) -> Detection:
         """

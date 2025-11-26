@@ -62,24 +62,25 @@ class FashionClipTextEncoderTask(BaseTask):
         
         Args:
             prompts: List of text prompts to encode (optional if reading from context)
-            prompts_key: Context key to read prompts from (e.g., DETECTION_PROMPTS)
+            prompts_key: Context key to read prompts from (defaults to TEXT)
             fashion_clip_model: FashionClipModel instance for encoding
             normalize: Whether to normalize embeddings to unit vectors (default: True)
             task_id: Unique identifier for this task
         """
         super().__init__(task_id)
         self.prompts = prompts or []
-        self.prompts_key = prompts_key
+        # Default to TEXT like clip_text_encoder for compatibility
+        self.prompts_key = prompts_key if prompts_key is not None else ContextDataType.TEXT
         self.fashion_clip_model = fashion_clip_model
         self.normalize = normalize
         
         # Define contracts
-        self.input_contract = {}
-        if prompts_key:
-            self.input_contract[prompts_key] = (list, str)
+        self.input_contract = {
+            ContextDataType.TEXT: (list, str)  # Read prompts from TEXT by default
+        }
         
         self.output_contract = {
-            ContextDataType.PROMPT_EMBEDDINGS: dict
+            ContextDataType.EMBEDDINGS: list  # List of [text, embedding] pairs
         }
         
         logger.info(f"FashionClipTextEncoderTask '{task_id}' initialized with "
@@ -138,15 +139,40 @@ class FashionClipTextEncoderTask(BaseTask):
         Returns:
             np.ndarray of shape (N, 768), optionally normalized
         """
-        if not self.fashion_clip_model:
+        # Get FashionClip model from instance or environment
+        fashion_clip_model = self.fashion_clip_model
+        if not fashion_clip_model:
+            from ..environment import Environment
+            env = Environment.get_instance()
+            fashion_clip_model = env.get("services", "fashion_clip", "model")
+            
+            # If still not found, try to initialize it
+            if not fashion_clip_model:
+                logger.info(f"Task '{self.task_id}': Initializing FashionClip model...")
+                from ...models.FashionClip.fashion_clip_model import FashionClipModel
+                from ...utils.config import VLMChatConfig
+                
+                # Get config from context if available
+                config = getattr(self, '_context', None) and getattr(self._context, 'config', None)
+                if not config:
+                    config = VLMChatConfig()
+                
+                fashion_clip_model = FashionClipModel(config=config)
+                env.set("services", "fashion_clip", "model", fashion_clip_model)
+                logger.info(f"Task '{self.task_id}': FashionClip model initialized and cached")
+        
+        if not fashion_clip_model:
             raise ValueError(f"Task '{self.task_id}': fashion_clip_model required to encode prompts")
+        
+        # Update instance variable
+        self.fashion_clip_model = fashion_clip_model
         
         # Access the FashionClip runtime
         try:
-            if hasattr(self.fashion_clip_model, '_runtime_as_fashion_clip'):
-                runtime = self.fashion_clip_model._runtime_as_fashion_clip()
-            elif hasattr(self.fashion_clip_model, '_runtime'):
-                runtime = self.fashion_clip_model._runtime
+            if hasattr(fashion_clip_model, '_runtime_as_fashion_clip'):
+                runtime = fashion_clip_model._runtime_as_fashion_clip()
+            elif hasattr(fashion_clip_model, '_runtime'):
+                runtime = fashion_clip_model._runtime
             else:
                 raise ValueError("Could not access FashionClip runtime - model must be FashionClipModel")
         except Exception as e:
@@ -157,7 +183,7 @@ class FashionClipTextEncoderTask(BaseTask):
             try:
                 # Encode single prompt as a list
                 emb = runtime.encode_text([prompt])
-                # Convert to numpy
+                # Convert to numpy and squeeze to get (D,) shape
                 emb_np = emb.cpu().numpy().squeeze()
                 
                 # Check if already normalized (FashionClip returns normalized embeddings)
@@ -191,16 +217,23 @@ class FashionClipTextEncoderTask(BaseTask):
         Returns:
             Context with PROMPT_EMBEDDINGS data added
         """
+        # Save context reference for model initialization
+        self._context = context
+        
         # Gather prompts from config and context
         prompts_to_encode = self.prompts.copy() if self.prompts else []
         
         # Add prompts from context if prompts_key specified
         if self.prompts_key:
+            logger.debug(f"Task '{self.task_id}': Checking context for prompts_key={self.prompts_key}")
+            logger.debug(f"Task '{self.task_id}': Context data keys: {list(context.data.keys())}")
             context_prompts = self._get_prompts_from_context(context)
             if context_prompts:
                 logger.info(f"Task '{self.task_id}': Found {len(context_prompts)} prompts "
                            f"in context[{self.prompts_key}]")
                 prompts_to_encode.extend(context_prompts)
+            else:
+                logger.warning(f"Task '{self.task_id}': No prompts found in context[{self.prompts_key}]")
         
         # Remove duplicates while preserving order
         seen = set()
@@ -214,10 +247,7 @@ class FashionClipTextEncoderTask(BaseTask):
         
         if not prompts_to_encode:
             logger.warning(f"Task '{self.task_id}': No prompts to encode")
-            context.data[ContextDataType.PROMPT_EMBEDDINGS] = {
-                'prompts': [],
-                'embeddings': np.array([]),
-            }
+            context.data[ContextDataType.EMBEDDINGS] = []
             return context
         
         logger.info(f"Task '{self.task_id}': Encoding {len(prompts_to_encode)} fashion prompts")
@@ -227,12 +257,9 @@ class FashionClipTextEncoderTask(BaseTask):
         
         logger.info(f"Task '{self.task_id}': Generated FashionClip embeddings with shape {embeddings.shape}")
         
-        # Store in context
-        context.data[ContextDataType.PROMPT_EMBEDDINGS] = {
-            'prompts': prompts_to_encode,
-            'embeddings': embeddings,
-            'normalized': self.normalize,
-        }
+        # Store as list of [text, embedding] pairs (matching clip_text_encoder format)
+        embedding_pairs = [[text, emb] for text, emb in zip(prompts_to_encode, embeddings)]
+        context.data[ContextDataType.EMBEDDINGS] = embedding_pairs
         
         return context
     

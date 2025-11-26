@@ -27,8 +27,15 @@ class ClipVisionTask(BaseTask):
     2. Crops the image for each TOP-LEVEL detection bounding box (ignores children)
     3. Creates a batch of cropped images (numpy arrays)
     4. Runs CLIP vision encoder on the batch
-    5. Stores embeddings in context (one per top-level detection)
+    5. Stores embeddings in context as [detection_id, embedding] pairs
     6. Passes through IMAGE and DETECTIONS unchanged
+    
+    Output format in ContextDataType.EMBEDDINGS:
+    [
+        ['detection_0', np.ndarray],
+        ['detection_1', np.ndarray],
+        ...
+    ]
     
     The embeddings can be used for:
     - Similarity matching between detections
@@ -44,7 +51,7 @@ class ClipVisionTask(BaseTask):
         # After execution, context contains:
         # - ContextDataType.DETECTIONS: Original detections
         # - ContextDataType.IMAGE: Original image
-        # - ContextDataType.EMBEDDINGS: List of CLIP embeddings
+        # - ContextDataType.EMBEDDINGS: List of [id, embedding] pairs
     """
     
     def __init__(self, clip_model=None, task_id: str = "clip_vision"):
@@ -109,8 +116,29 @@ class ClipVisionTask(BaseTask):
             context: Input context with IMAGE and DETECTIONS
             
         Returns:
-            Context with EMBEDDINGS added
+            Context with EMBEDDINGS added as list of [detection_id, embedding] pairs
         """
+        # Get or initialize CLIP model from environment
+        clip_model = self.clip_model
+        if not clip_model:
+            from ...pipeline.environment import Environment
+            env = Environment.get_instance()
+            clip_model = env.get("services", "clip", "model")
+            
+            # If still not found, try to initialize it
+            if not clip_model:
+                logger.info(f"Task '{self.task_id}': Initializing CLIP model...")
+                from ...models.MobileClip.clip_model import CLIPModel
+                from ...utils.config import VLMChatConfig
+                
+                config = getattr(context, 'config', None) or VLMChatConfig()
+                clip_model = CLIPModel(config=config, collector=None)
+                env.set("services", "clip", "model", clip_model)
+                logger.info(f"Task '{self.task_id}': CLIP model initialized and cached")
+        
+        if not clip_model:
+            raise ValueError(f"Task '{self.task_id}': clip_model required to encode images")
+        
         # Get image from context
         image_list = context.data.get(ContextDataType.IMAGE)
         if not image_list:
@@ -128,10 +156,10 @@ class ClipVisionTask(BaseTask):
         if not detections:
             # No detections - encode the entire image instead
             try:
-                runtime = self.clip_model._runtime_as_clip()
+                runtime = clip_model._runtime_as_clip()
                 emb = runtime.encode_image(image)
-                # Store single embedding for entire image
-                context.data[ContextDataType.EMBEDDINGS] = [emb.cpu().numpy()]
+                # Store single embedding for entire image with label
+                context.data[ContextDataType.EMBEDDINGS] = [['full_image', emb.cpu().numpy()]]
                 return context
             except Exception as e:
                 print(f"Error encoding entire image: {e}")
@@ -140,6 +168,8 @@ class ClipVisionTask(BaseTask):
         
         # Crop images for each TOP-LEVEL detection only (ignore children)
         cropped_images = []
+        detection_ids = []
+        
         for det in detections:
             try:
                 # Check if detection has an enhanced crop in metadata
@@ -157,16 +187,20 @@ class ClipVisionTask(BaseTask):
                     # Standard crop from original image
                     crop = self._crop_detection_from_image(image, det)
                     cropped_images.append(crop)
+                
+                # Store actual detection ID
+                detection_ids.append(det.id)
                     
             except Exception as e:
-                print(f"Warning: Failed to crop detection {det.id}: {e}")
+                logger.warning(f"Task {self.task_id}: Failed to crop detection {det.id}: {e}")
                 # Add placeholder for failed crops
                 cropped_images.append(np.zeros((224, 224, 3), dtype=np.uint8))
+                detection_ids.append(det.id)
         
         # Generate CLIP embeddings for batch
         try:
             # CLIPModel uses a runtime backend
-            runtime = self.clip_model._runtime_as_clip()
+            runtime = clip_model._runtime_as_clip()
             
             embeddings = []
             for crop_array in cropped_images:
@@ -174,14 +208,19 @@ class ClipVisionTask(BaseTask):
                 crop_pil = Image.fromarray(crop_array)
                 # Encode single image using runtime
                 emb = runtime.encode_image(crop_pil)
-                # Convert torch tensor to numpy and store
-                embeddings.append(emb.cpu().numpy())
+                # Convert torch tensor to numpy and squeeze to get (D,) shape
+                raw_emb = emb.cpu().numpy().squeeze()
+                embeddings.append(raw_emb)
             
-            # Store embeddings in context
-            context.data[ContextDataType.EMBEDDINGS] = embeddings
+            # Store as list of [detection_id, embedding] pairs
+            embedding_pairs = [[det_id, emb] for det_id, emb in zip(detection_ids, embeddings)]
+            context.data[ContextDataType.EMBEDDINGS] = embedding_pairs
+            
+            logger.info(f"Task '{self.task_id}': Generated {len(embedding_pairs)} embeddings, "
+                       f"passing through {len(detections)} detections")
             
         except Exception as e:
-            print(f"Error generating CLIP embeddings: {e}")
+            logger.error(f"Error generating CLIP embeddings: {e}", exc_info=True)
             # Return empty embeddings on error
             context.data[ContextDataType.EMBEDDINGS] = []
         

@@ -9,7 +9,7 @@ Attributes:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import enum
 from abc import ABC, abstractmethod
 from PIL import Image
@@ -67,50 +67,59 @@ class LoopControlAction(enum.Enum):
 
 
 class ContextDataType(enum.Enum):
-    PROMPT = ("prompt", False)
-    IMAGE = ("image", False)
-    RESPONSE = ("response", False)
-    DETECTIONS = ("detections", True)
-    MATCHES = ("matches", True)
-    CROPS = ("crops", True)
-    EMBEDDINGS = ("embeddings", True)
-    PROMPT_EMBEDDINGS = ("prompt_embeddings", False)  # Immutable: shared across iterations
-    PROMPT_SIMILARITY = ("prompt_similarity", False)  # Immutable: similarity analysis results
-    AUDIT = ("audit", True)
-    LOOP_STACK = ("loop_stack", False)  # Immutable: stack of loop states for nested loops
-    DIAGNOSTIC = ("diagnostic", True)  # Mutable: test/debug data (counters, key-value pairs)
+    TEXT = "text"
+    IMAGE = "image"
+    DETECTIONS = "detections"
+    MATCHES = "matches"
+    CROPS = "crops"
+    EMBEDDINGS = "embeddings"
+    SIMILARITY_SCORES = "similarity_scores"
+    PROMPT_EMBEDDINGS = "prompt_embeddings"  # Deprecated: use EMBEDDINGS instead
+    PROMPT_SIMILARITY = "prompt_similarity"
+    AUDIT = "audit"
+    LOOP_STACK = "loop_stack"
+    DIAGNOSTIC = "diagnostic"
     
-    def __init__(self, type_name: str, is_mutable: bool):
+    def __init__(self, type_name: str):
         self.type_name = type_name
-        self.is_mutable = is_mutable
 
 
 class Context:
     def __init__(self) -> None:
         self.data: Dict[ContextDataType, List[Any]] = {}
         self.collector = None  # Set by runner if metrics enabled
+        self.config = None  # Application config (VLMChatConfig)
+        self.pipeline_runner = None  # Set by runner for queue-based I/O
     
     def split(self, num_branches: int, immutable_cache: Dict[ContextDataType, List[Any]]) -> List['Context']:
-        """Split context into multiple branches with shared immutable data."""
+        """
+        Split context into multiple branches with shallow-copied lists.
+        
+        Each branch gets its own list that can be independently modified (add/remove items),
+        but the list items themselves are shared references. This is memory-efficient for
+        heavy objects (images, embeddings) while providing list isolation across branches.
+        
+        To modify an item: remove from list, create modified copy, add back to list.
+        """
         contexts = []
         for _ in range(num_branches):
             ctx = Context()
             ctx.collector = self.collector
+            ctx.config = self.config  # Share config across branches
+            ctx.pipeline_runner = self.pipeline_runner  # Share runner reference
+            
+            # Shallow copy all lists - each branch gets own list with shared item references
             for data_type, data in self.data.items():
-                if data_type.is_mutable:
-                    # Time the deep copy
-                    if self.collector:
-                        start = time.time()
-                        ctx.data[data_type] = copy.deepcopy(data)
-                        duration_ms = (time.time() - start) * 1000.0
-                        self.collector.data_point("context.split.copy.duration", 
-                                                 {"data_type": data_type.type_name, "is_mutable": "true"}, 
-                                                 duration_ms)
-                    else:
-                        ctx.data[data_type] = copy.deepcopy(data)
+                if self.collector:
+                    start = time.time()
+                    ctx.data[data_type] = list(data) if isinstance(data, list) else data
+                    duration_ms = (time.time() - start) * 1000.0
+                    self.collector.data_point("context.split.copy.duration", 
+                                             {"data_type": data_type.type_name, "copy_type": "shallow"}, 
+                                             duration_ms)
                 else:
-                    ctx.data[data_type] = data
-                    immutable_cache[data_type] = data
+                    ctx.data[data_type] = list(data) if isinstance(data, list) else data
+            
             contexts.append(ctx)
         return contexts
 
@@ -121,8 +130,10 @@ class BaseTask(ABC):
         self.output_contract: Dict[ContextDataType, Any] = {}
         self.readiness = False
         self.upstream_tasks: List['BaseTask'] = []
+        self.downstream_tasks: List['BaseTask'] = []  # Doubly-linked execution graph
         self.collector = None  # Set by runner if metrics enabled
         self._trace_recorder = None  # Set by runner if tracing enabled
+        self.exit_code = 0  # Task exit code: 0=success, non-zero=failure (unix convention)
         
         # Cooperative timing support
         self.time_budget_ms = time_budget_ms  # Milliseconds allowed for execution
@@ -174,6 +185,76 @@ class BaseTask(ABC):
         elapsed_ms = (time.time() - self._start_time) * 1000.0
         return elapsed_ms < self.time_budget_ms
     
+    def env_set(self, key: str, value: Any) -> None:
+        """
+        Store value in Environment with automatic taskType and taskId.
+        
+        This is a convenience wrapper around Environment.set() that automatically
+        populates the taskType (from class name) and taskId (from self.task_id).
+        
+        Args:
+            key: The key for this data (e.g., "current_image", "results")
+            value: The value to store
+        
+        Example:
+            # Instead of:
+            env = Environment.get_instance()
+            env.set("Camera", self.task_id, "current_image", image)
+            
+            # Use:
+            self.env_set("current_image", image)
+        """
+        from .environment import Environment
+        env = Environment.get_instance()
+        env.set(self.__class__.__name__, self.task_id, key, value)
+    
+    def env_get(self, key: str, default: Any = None) -> Any:
+        """
+        Retrieve value from Environment with automatic taskType and taskId.
+        
+        This is a convenience wrapper around Environment.get() that automatically
+        populates the taskType (from class name) and taskId (from self.task_id).
+        
+        """
+        from .environment import Environment
+        env = Environment.get_instance()
+        return env.get(self.__class__.__name__, self.task_id, key, default)
+    
+    def env_has(self, key: str) -> bool:
+        """
+        Check if key exists in Environment with automatic taskType and taskId.
+        
+        Args:
+            key: The key to check
+        
+        Returns:
+            True if key exists, False otherwise
+        
+        Example:
+            if self.env_has("cached_results"):
+                results = self.env_get("cached_results")
+        """
+        from .environment import Environment
+        env = Environment.get_instance()
+        return env.has(self.__class__.__name__, self.task_id, key)
+    
+    def env_remove(self, key: str) -> bool:
+        """
+        Remove key from Environment with automatic taskType and taskId.
+        
+        Args:
+            key: The key to remove
+        
+        Returns:
+            True if key was removed, False if it didn't exist
+        
+        Example:
+            self.env_remove("temporary_data")
+        """
+        from .environment import Environment
+        env = Environment.get_instance()
+        return env.remove(self.__class__.__name__, self.task_id, key)
+    
     def _record_start(self) -> None:
         """
         Record task start time for cooperative timing.
@@ -183,21 +264,23 @@ class BaseTask(ABC):
         """
         self._start_time = time.time()
     
-    def _record_trace(self, event_type: str = 'execute', submission_time: float = None) -> None:
+    def _record_trace(self, event_type: str = 'execute', submission_time: float = None, exit_code: int = 0) -> None:
         """
         Record execution trace event via runner's trace recorder.
         
-        Trace format: (timestamp, thread_id, task_id, upstream_task_ids, event_type, submission_time)
+        Trace format: (timestamp, thread_id, task_id, upstream_task_ids, event_type, submission_time, exit_code)
         - timestamp: float, time.time() - when execution started
         - thread_id: int, threading.get_ident()
         - task_id: str, self.task_id
         - upstream_task_ids: List[str], task IDs this task depends on
         - event_type: str, 'execute', 'split', 'merge', etc.
         - submission_time: float, time.time() - when submitted to thread pool (None if not applicable)
+        - exit_code: int, 0=success, non-zero=failure (unix convention)
         
         Args:
             event_type: Type of event ('execute', 'split', 'merge')
             submission_time: When task was submitted to thread pool (for wait time calculation)
+            exit_code: Task exit code (0=success, non-zero=failure)
         """
         # Only record if trace recorder is set (runner manages trace)
         if not self._trace_recorder:
@@ -212,7 +295,8 @@ class BaseTask(ABC):
             self.task_id,
             upstream_ids,
             event_type,
-            submission_time
+            submission_time if submission_time is not None else time.time(),
+            exit_code
         )
         
         self._trace_recorder(trace_event)
@@ -235,6 +319,90 @@ class BaseTask(ABC):
                     f"{upstream_task.task_id} doesn't produce required {input_type.type_name}"
                 )
         return True
+    
+    # ============================================================
+    # Task Documentation Methods
+    # ============================================================
+    
+    def describe(self) -> str:
+        """
+        Return a human-readable description of what this task does.
+        
+        Subclasses should override to provide specific descriptions.
+        
+        Returns:
+            A one or two sentence description of the task's purpose
+        """
+        return f"{self.__class__.__name__} task - no description provided."
+    
+    def describe_contracts(self) -> Dict[str, Dict[ContextDataType, Any]]:
+        """
+        Return input and output contracts for this task.
+        
+        This method extracts the contract information from the task's
+        input_contract and output_contract dictionaries.
+        
+        Returns:
+            Dict with 'inputs' and 'outputs' keys, each containing
+            a Dict[ContextDataType, type] mapping
+        """
+        return {
+            'inputs': self.input_contract.copy() if self.input_contract else {},
+            'outputs': self.output_contract.copy() if self.output_contract else {}
+        }
+    
+    def describe_parameters(self) -> Dict[str, Union[str, Dict[str, Any]]]:
+        """
+        Return parameter descriptions for this task.
+        
+        Subclasses should override to provide parameter documentation.
+        
+        Each parameter can be described as:
+        - Simple string: "Parameter description with type info, defaults, etc."
+        - Structured dict: {
+            'description': "What this parameter does",
+            'type': "str" | "int" | "float" | "bool" | "list" | etc.,
+            'default': value,
+            'choices': [option1, option2, ...],
+            'required': True/False,
+            'example': "example value",
+            'format': "Additional format info"
+          }
+        
+        Returns:
+            Dict[str, Union[str, Dict[str, Any]]] - Parameter name to description mapping
+        """
+        return {}
+    
+    def describe_exit_codes(self) -> Dict[int, str]:
+        """
+        Return exit code descriptions for this task.
+        
+        Subclasses should override to document their exit codes.
+        
+        Exit code convention (unix-style):
+        - 0: Success
+        - 1: Generic failure (empty data, no results, etc.)
+        - 2: Exception/error during execution (set automatically by runner)
+        - 3+: Task-specific error codes
+        
+        Returns:
+            Dict[int, str] - Exit code to description mapping
+        
+        Example:
+            ```python
+            def describe_exit_codes(self) -> Dict[int, str]:
+                return {
+                    0: "Success: valid input received",
+                    1: "Failure: empty input",
+                    3: "Failure: invalid format"
+                }
+            ```
+        """
+        return {
+            0: "Success",
+            2: "Exception during execution"
+        }
 
 
 class Connector(BaseTask):
@@ -310,22 +478,48 @@ class Connector(BaseTask):
     
     def merge_strategy(self, contexts: List[Context]) -> Context:
         """
-        Default merge: concatenate mutable data, use first immutable data.
-        Override for custom merge logic.
+        Default merge: concatenate all lists with ID-based deduplication.
+        
+        Deduplication uses item.id attribute (or object identity as fallback)
+        to prevent the same object from appearing multiple times when branches
+        share references.
+        
+        Override for custom merge logic (e.g., ordered_merge preserves structure).
         """
         logger.debug(f"Connector {self.task_id}: merging {len(contexts)} contexts")
         merged = Context()
+        
+        # Preserve context attributes from first context
+        if contexts:
+            merged.pipeline_runner = contexts[0].pipeline_runner
+            merged.collector = contexts[0].collector
+            merged.config = contexts[0].config
+        
         data_by_type: Dict[ContextDataType, List[Any]] = {}
         
+        # Concatenate all items from all contexts
         for ctx in contexts:
             for data_type, data in ctx.data.items():
                 if data_type not in data_by_type:
                     data_by_type[data_type] = []
-                if data_type.is_mutable:
-                    data_by_type[data_type].extend(data)
-                else:
-                    if not data_by_type[data_type]:
-                        data_by_type[data_type] = data
+                data_by_type[data_type].extend(data)
+        
+        # Deduplicate by ID to prevent duplicate references
+        for data_type, items in data_by_type.items():
+            if items:
+                seen_ids = set()
+                deduped = []
+                for item in items:
+                    # Try to get stable ID first, fall back to object identity
+                    item_id = getattr(item, 'id', None) or id(item)
+                    if item_id not in seen_ids:
+                        seen_ids.add(item_id)
+                        deduped.append(item)
+                data_by_type[data_type] = deduped
+                
+                if len(deduped) < len(items):
+                    logger.debug(f"Connector {self.task_id}: deduplicated {data_type.type_name} "
+                               f"from {len(items)} to {len(deduped)} items")
         
         merged.data = data_by_type
         
@@ -467,3 +661,4 @@ class LoopCondition(BaseTask):
             logger.warning(f"[{self.task_id}] Control task evaluated outside loop context")
         
         return context
+
