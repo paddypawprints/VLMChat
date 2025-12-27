@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://edge-camera/schemas/device-register/v1.0.0/schema.json",
+  "title": "Device Registration",
+  "description": "Device announces itself and its capabilities to the server",
+  "type": "object",
+  "required": ["device_id", "type", "capabilities", "schema_versions"],
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "description": "Unique device identifier"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["raspberry-pi", "jetson", "coral", "ncs", "other"],
+      "description": "Device hardware type"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable device name"
+    },
+    "ip": {
+      "type": "string",
+      "format": "ipv4",
+      "description": "Device IP address"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["ai-detection", "metrics", "webrtc", "camera"]
+      },
+      "description": "Device capabilities"
+    },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Available metrics session names"
+    },
+    "schema_versions": {
+      "type": "object",
+      "description": "Schema versions supported by this device",
+      "properties": {
+        "device-register": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "watchlist": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "alerts": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "metrics-config": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "metrics-data": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        }
+      }
+    },
+    "specs": {
+      "type": "object",
+      "description": "Hardware specifications",
+      "properties": {
+        "cpu": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "usage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    }
+  }
+}

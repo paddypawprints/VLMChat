@@ -10,6 +10,33 @@ __pycache__/
 # model weights
 *.pt
 
+# Generated code (from specs)
+web-platform/shared/types/
+device-sdk/edge_llm_client/models/
+docs/asyncapi/
+
+# External models / dependencies
+vlmchat/models/MobileClip/ml-mobileclip/
+
+# Node.js / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# TypeScript
+*.tsbuildinfo
+
+# Build outputs
+dist/
+build/
+*.js.map
+
 # Distribution / packaging
 .Python
 build/
@@ -137,6 +164,14 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
 # Environments
 .env

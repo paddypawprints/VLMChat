@@ -1,0 +1,574 @@
+openapi: 3.1.0
+info:
+  title: Edge AI Platform API
+  version: 1.0.0
+  description: |
+    REST API for the Edge AI Platform web management interface.
+    Provides device management, chat, and metrics access.
+  contact:
+    name: VLMChat Platform
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+  - url: http://localhost:3000
+    description: Docker development server
+
+tags:
+  - name: auth
+    description: Authentication endpoints
+  - name: devices
+    description: Device management
+  - name: chat
+    description: Chat with AI models
+  - name: schemas
+    description: JSON schema metadata
+  - name: metrics
+    description: Device metrics and monitoring
+
+paths:
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Login or register user
+      description: Authenticate user with email. Creates new user if doesn't exist.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                name:
+                  type: string
+                  example: John Doe
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: Get current user
+      description: Returns currently authenticated user or null
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    oneOf:
+                      - $ref: '#/components/schemas/User'
+                      - type: "null"
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout user
+      operationId: logout
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /api/devices:
+    get:
+      tags: [devices]
+      summary: List all devices
+      description: Get all edge devices registered to the current user
+      operationId: listDevices
+      responses:
+        '200':
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
+    post:
+      tags: [devices]
+      summary: Register new device
+      description: Create a new edge device registration
+      operationId: createDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCreate'
+      responses:
+        '200':
+          description: Device created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/devices/{id}:
+    delete:
+      tags: [devices]
+      summary: Delete device
+      description: Remove a device registration
+      operationId: deleteDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Device deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/devices/{id}/messages:
+    get:
+      tags: [devices]
+      summary: Get device messages
+      description: Retrieve MQTT messages from a specific device
+      operationId: getDeviceMessages
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Device messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/chat/messages:
+    get:
+      tags: [chat]
+      summary: Get chat messages
+      description: Retrieve chat message history
+      operationId: getChatMessages
+      parameters:
+        - name: deviceId
+          in: query
+          description: Filter by device ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Chat messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/chat/message:
+    post:
+      tags: [chat]
+      summary: Send chat message
+      description: Send a message to the AI and get a response
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                  example: "What do you see in this image?"
+                deviceId:
+                  type: string
+                  format: uuid
+                debug:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Message sent and response received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userMessage:
+                    $ref: '#/components/schemas/ChatMessage'
+                  aiMessage:
+                    $ref: '#/components/schemas/ChatMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/schemas:
+    get:
+      tags: [schemas]
+      summary: List all schemas
+      description: Get metadata about available JSON schemas
+      operationId: listSchemas
+      responses:
+        '200':
+          description: Schema list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schemas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        topic:
+                          type: string
+                        version:
+                          type: string
+                        url:
+                          type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/schemas/{topic}/{version}/schema.json:
+    get:
+      tags: [schemas]
+      summary: Get specific schema
+      description: Retrieve a specific version of a JSON schema
+      operationId: getSchema
+      parameters:
+        - name: topic
+          in: path
+          required: true
+          schema:
+            type: string
+            example: alerts
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+            example: v1.0.0
+      responses:
+        '200':
+          description: JSON Schema
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Schema not found
+
+  /api/devices/{deviceId}/metrics:
+    get:
+      tags: [metrics]
+      summary: Get metrics configuration
+      description: Retrieve the current metrics configuration for a device
+      operationId: getMetricsConfig
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Metrics configuration
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/metrics-config/v1.0.0/schema.json'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/devices/{deviceId}/metrics/{session}:
+    get:
+      tags: [metrics]
+      summary: Get metrics data
+      description: Retrieve metrics data for a specific session
+      operationId: getMetricsData
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: session
+          in: path
+          required: true
+          description: Metrics session name
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of data points
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        '200':
+          description: Metrics data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '../schemas/metrics-data/v1.0.0/schema.json'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/devices/{deviceId}/metrics/subscribe:
+    post:
+      tags: [metrics]
+      summary: Subscribe to metrics
+      description: Request device to start publishing metrics data
+      operationId: subscribeMetrics
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session:
+                  type: string
+                  description: Metrics session name
+                interval_seconds:
+                  type: number
+                  default: 5
+                  minimum: 1
+      responses:
+        '200':
+          description: Subscription request sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  session:
+                    type: string
+                  interval_seconds:
+                    type: number
+        '503':
+          description: MQTT not available
+
+  /api/devices/{deviceId}/metrics/unsubscribe:
+    post:
+      tags: [metrics]
+      summary: Unsubscribe from metrics
+      description: Request device to stop publishing metrics data
+      operationId: unsubscribeMetrics
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session:
+                  type: string
+      responses:
+        '200':
+          description: Unsubscribe request sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  session:
+                    type: string
+        '503':
+          description: MQTT not available
+
+components:
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: Device unique identifier
+      schema:
+        type: string
+
+  schemas:
+    User:
+      type: object
+      required: [id, email, name, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        provider:
+          type: string
+          enum: [google, github, email]
+        providerId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Device:
+      type: object
+      required: [id, name, type, ip, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [raspberry-pi, jetson, intel-nuc, other]
+        ip:
+          type: string
+        status:
+          type: string
+          enum: [connected, disconnected, connecting]
+        specs:
+          type: object
+          description: Device specifications
+          properties:
+            cpu:
+              type: string
+            memory:
+              type: string
+            storage:
+              type: string
+        userId:
+          type: string
+          format: uuid
+        lastSeen:
+          type: string
+          format: date-time
+
+    DeviceCreate:
+      type: object
+      required: [id, name, type, ip]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        ip:
+          type: string
+        specs:
+          type: object
+
+    DeviceMessage:
+      type: object
+      required: [id, deviceId, topic, payload, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+        topic:
+          type: string
+          description: MQTT topic
+        payload:
+          type: object
+          description: Message payload
+        qos:
+          type: string
+          enum: ['0', '1', '2']
+        retained:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    ChatMessage:
+      type: object
+      required: [id, userId, role, content, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+          nullable: true
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+        debug:
+          type: object
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+  responses:
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              details:
+                type: string

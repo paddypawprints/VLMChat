@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: edge_llm
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+      - mqtt_logs:/mosquitto/log
+    restart: unless-stopped
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai_service.py:/app/ai_service.py
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    ports:
+      - "3000:5000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/edge_llm
+      AI_SERVICE_URL: http://ai-service:8000
+      MQTT_URL: mqtt://mqtt:1883
+      NODE_ENV: development
+    depends_on:
+      - db
+      - ai-service
+      - mqtt
+    volumes:
+      - ./client:/app/client
+      - ./server:/app/server
+      - ./shared:/app/shared
+      - ./attached_assets:/app/attached_assets
+      - ./package.json:/app/package.json
+      - ./vite.config.ts:/app/vite.config.ts
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tailwind.config.ts:/app/tailwind.config.ts
+      - ./postcss.config.js:/app/postcss.config.js
+      - ./drizzle.config.ts:/app/drizzle.config.ts
+
+volumes:
+  mqtt_data:
+  mqtt_logs:
+  postgres_data:

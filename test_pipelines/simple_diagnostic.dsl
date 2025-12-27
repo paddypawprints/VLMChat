@@ -1,1 +1,0 @@
-diagnostic(message="from file")->diagnostic(message="also from file")

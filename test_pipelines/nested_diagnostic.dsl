@@ -1,1 +1,0 @@
-diagnostic(message="nested1")->diagnostic(message="nested2")

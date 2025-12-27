@@ -1,0 +1,353 @@
+asyncapi: 3.0.0
+info:
+  title: Edge AI Platform MQTT API
+  version: 1.0.0
+  description: |
+    MQTT messaging protocol for Edge AI Platform devices.
+    Defines topics for device registration, status updates, alerts, metrics, and WebRTC signaling.
+  contact:
+    name: VLMChat Platform
+  license:
+    name: MIT
+
+servers:
+  production:
+    host: localhost:1883
+    protocol: mqtt
+    description: Local MQTT broker
+    tags:
+      - name: env:development
+
+  docker:
+    host: mqtt:1883
+    protocol: mqtt
+    description: Docker MQTT broker
+    tags:
+      - name: env:docker
+
+defaultContentType: application/json
+
+channels:
+  deviceRegister:
+    address: devices/{deviceId}/register
+    messages:
+      deviceRegister:
+        $ref: '#/components/messages/DeviceRegister'
+    description: Device sends registration information on startup
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceStatus:
+    address: devices/{deviceId}/status
+    messages:
+      deviceStatus:
+        $ref: '#/components/messages/DeviceStatus'
+    description: Device publishes status changes
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceHeartbeat:
+    address: devices/{deviceId}/heartbeat
+    messages:
+      deviceHeartbeat:
+        $ref: '#/components/messages/DeviceHeartbeat'
+    description: Periodic heartbeat from device (keepalive)
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceAlerts:
+    address: devices/{deviceId}/alerts
+    messages:
+      alert:
+        $ref: '#/components/messages/Alert'
+    description: Device publishes detection alerts and system events
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceSnapshot:
+    address: devices/{deviceId}/snapshot
+    messages:
+      snapshot:
+        $ref: '#/components/messages/Snapshot'
+    description: Device publishes camera snapshots
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  metricsConfig:
+    address: devices/{deviceId}/metrics/config
+    messages:
+      metricsConfig:
+        $ref: '#/components/messages/MetricsConfig'
+    description: Device publishes available metrics sessions
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  metricsData:
+    address: devices/{deviceId}/metrics/data/{session}
+    messages:
+      metricsData:
+        $ref: '#/components/messages/MetricsData'
+    description: Device publishes metrics data for a specific session
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+      session:
+        description: Metrics session name
+        location: $message.payload#/session
+
+  metricsSubscribe:
+    address: devices/{deviceId}/metrics/subscribe
+    messages:
+      metricsSubscribe:
+        $ref: '#/components/messages/MetricsSubscribe'
+    description: Server requests device to start publishing metrics
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  metricsUnsubscribe:
+    address: devices/{deviceId}/metrics/unsubscribe
+    messages:
+      metricsUnsubscribe:
+        $ref: '#/components/messages/MetricsUnsubscribe'
+    description: Server requests device to stop publishing metrics
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  webrtcOffer:
+    address: devices/{deviceId}/webrtc/offer
+    messages:
+      webrtcSignal:
+        $ref: '#/components/messages/WebRTCSignal'
+    description: WebRTC offer from server to device
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  webrtcAnswer:
+    address: devices/{deviceId}/webrtc/answer
+    messages:
+      webrtcSignal:
+        $ref: '#/components/messages/WebRTCSignal'
+    description: WebRTC answer from device to server
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  webrtcIceCandidate:
+    address: devices/{deviceId}/webrtc/ice
+    messages:
+      webrtcSignal:
+        $ref: '#/components/messages/WebRTCSignal'
+    description: ICE candidate exchange
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+operations:
+  publishDeviceRegister:
+    action: send
+    channel:
+      $ref: '#/channels/deviceRegister'
+    summary: Device publishes registration
+    description: Sent when device starts up or reconnects
+
+  publishDeviceStatus:
+    action: send
+    channel:
+      $ref: '#/channels/deviceStatus'
+    summary: Device publishes status update
+    description: Sent when device status changes
+
+  publishDeviceHeartbeat:
+    action: send
+    channel:
+      $ref: '#/channels/deviceHeartbeat'
+    summary: Device sends heartbeat
+    description: Periodic keepalive message
+
+  publishAlert:
+    action: send
+    channel:
+      $ref: '#/channels/deviceAlerts'
+    summary: Device publishes alert
+    description: Detection alert or system event
+
+  publishSnapshot:
+    action: send
+    channel:
+      $ref: '#/channels/deviceSnapshot'
+    summary: Device publishes snapshot
+    description: Camera snapshot image
+
+  publishMetricsConfig:
+    action: send
+    channel:
+      $ref: '#/channels/metricsConfig'
+    summary: Device publishes metrics configuration
+    description: List of available metrics sessions
+
+  publishMetricsData:
+    action: send
+    channel:
+      $ref: '#/channels/metricsData'
+    summary: Device publishes metrics data
+    description: Instrumentation values for a session
+
+  subscribeToMetrics:
+    action: send
+    channel:
+      $ref: '#/channels/metricsSubscribe'
+    summary: Server subscribes to metrics
+    description: Request device to start publishing metrics
+
+  unsubscribeFromMetrics:
+    action: send
+    channel:
+      $ref: '#/channels/metricsUnsubscribe'
+    summary: Server unsubscribes from metrics
+    description: Request device to stop publishing metrics
+
+components:
+  parameters:
+    DeviceId:
+      description: Unique device identifier
+      location: $message.payload#/deviceId
+
+  messages:
+    DeviceRegister:
+      name: DeviceRegister
+      title: Device Registration
+      summary: Device registration information
+      contentType: application/json
+      payload:
+        $ref: '../schemas/device-register/v1.0.0/schema.json'
+
+    DeviceStatus:
+      name: DeviceStatus
+      title: Device Status
+      summary: Device status update
+      contentType: application/json
+      payload:
+        type: object
+        required: [status, timestamp]
+        properties:
+          status:
+            type: string
+            enum: [connected, disconnected, connecting, error]
+          timestamp:
+            type: string
+            format: date-time
+          error:
+            type: string
+            description: Error message if status is error
+
+    DeviceHeartbeat:
+      name: DeviceHeartbeat
+      title: Device Heartbeat
+      summary: Periodic keepalive
+      contentType: application/json
+      payload:
+        type: object
+        required: [timestamp]
+        properties:
+          timestamp:
+            type: string
+            format: date-time
+          uptime:
+            type: number
+            description: Device uptime in seconds
+
+    Alert:
+      name: Alert
+      title: Detection Alert
+      summary: Detection alert or system event
+      contentType: application/json
+      payload:
+        $ref: '../schemas/alerts/v1.0.0/schema.json'
+
+    Snapshot:
+      name: Snapshot
+      title: Camera Snapshot
+      summary: Camera image snapshot
+      contentType: application/json
+      payload:
+        type: object
+        required: [timestamp, image]
+        properties:
+          timestamp:
+            type: string
+            format: date-time
+          image:
+            type: string
+            description: Base64 encoded image
+          format:
+            type: string
+            enum: [jpeg, png]
+            default: jpeg
+          width:
+            type: integer
+          height:
+            type: integer
+
+    MetricsConfig:
+      name: MetricsConfig
+      title: Metrics Configuration
+      summary: Available metrics sessions
+      contentType: application/json
+      payload:
+        $ref: '../schemas/metrics-config/v1.0.0/schema.json'
+
+    MetricsData:
+      name: MetricsData
+      title: Metrics Data
+      summary: Instrumentation values
+      contentType: application/json
+      payload:
+        $ref: '../schemas/metrics-data/v1.0.0/schema.json'
+
+    MetricsSubscribe:
+      name: MetricsSubscribe
+      title: Subscribe to Metrics
+      summary: Request to start publishing metrics
+      contentType: application/json
+      payload:
+        type: object
+        required: [session]
+        properties:
+          session:
+            type: string
+            description: Metrics session name
+          interval_seconds:
+            type: number
+            description: Publishing interval in seconds
+            default: 5
+            minimum: 1
+
+    MetricsUnsubscribe:
+      name: MetricsUnsubscribe
+      title: Unsubscribe from Metrics
+      summary: Request to stop publishing metrics
+      contentType: application/json
+      payload:
+        type: object
+        required: [session]
+        properties:
+          session:
+            type: string
+            description: Metrics session name
+
+    WebRTCSignal:
+      name: WebRTCSignal
+      title: WebRTC Signaling
+      summary: WebRTC signaling message
+      contentType: application/json
+      payload:
+        $ref: '../schemas/webrtc-signaling/v1.0.0/schema.json'
