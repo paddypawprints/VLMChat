@@ -101,14 +101,41 @@ class ModelConfig(BaseModel):
         default="",
         description="Pretrained weights for FashionClip (empty for default)"
     )
+    fashion_clip_model_kwargs: Optional[dict] = Field(
+        default=None,
+        description="Additional keyword arguments for FashionClip model initialization"
+    )
     device: str = Field(
         default="cpu",
         description="Device to run models on (cpu, cuda, mps)"
+    )
+    
+    # TensorRT Engine Paths
+    yolo_engine_path: Path = Field(
+        default=Path("~/Dev/model-rt-build/platform/jetson/release_artifacts/yolov8n_fp16.engine").expanduser().absolute(),
+        description="Path to YOLO TensorRT engine file"
+    )
+    yolo_model_path: Path = Field(
+        default=Path("~/yolov8n.pt").expanduser().absolute(),
+        description="Path to YOLO Ultralytics model file (.pt)"
+    )
+    clip_image_engine_path: Path = Field(
+        default=Path("~/Dev/model-rt-build/platform/jetson/release_artifacts/image_fp16.engine").expanduser().absolute(),
+        description="Path to CLIP image encoder TensorRT engine file"
+    )
+    clip_text_engine_path: Path = Field(
+        default=Path("~/Dev/model-rt-build/platform/jetson/release_artifacts/text_fp16.engine").expanduser().absolute(),
+        description="Path to CLIP text encoder TensorRT engine file"
     )
 
     @validator('onnx_base_path', pre=True)
     def expand_onnx_path(cls, v):
         """Expand user path and validate ONNX base path."""
+        return Path(v).expanduser().absolute()
+    
+    @validator('yolo_engine_path', 'clip_image_engine_path', 'clip_text_engine_path', pre=True)
+    def expand_engine_paths(cls, v):
+        """Expand user paths for TensorRT engine files."""
         return Path(v).expanduser().absolute()
 
     def get_onnx_model_path(self) -> Path:

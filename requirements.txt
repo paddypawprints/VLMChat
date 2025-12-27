@@ -6,6 +6,7 @@ pillow
 requests
 psutil
 pynvml
+readerwriterlock  # For reader-writer locks in ImageContainer
 
 # Optional dependencies for enhanced functionality
 onnxruntime  # For optimized model inference

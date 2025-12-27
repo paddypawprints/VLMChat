@@ -2,8 +2,8 @@
 Integration tests for DSL parser with actual task creation.
 """
 
-from src.pipeline.dsl_parser import DSLParser, create_task_registry
-from src.pipeline.task_base import BaseTask
+from vlmchat.pipeline.dsl_parser import DSLParser, create_task_registry
+from vlmchat.pipeline.task_base import BaseTask
 
 
 def test_simple_sequence():

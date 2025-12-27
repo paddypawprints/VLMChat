@@ -10,7 +10,7 @@ import pytest
 from collections import deque
 from PIL import Image
 
-from src.prompt.history import History, HistoryFormat
+from vlmchat.prompt.history import History, HistoryFormat
 from .conftest import TestUtilities
 
 

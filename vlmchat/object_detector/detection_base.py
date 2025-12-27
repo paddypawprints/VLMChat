@@ -7,7 +7,7 @@ for object detection capabilities, which can be chained in a pipeline.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple, Callable, Any # Added Callable
-from PIL import Image
+from PIL.Image import Image
 import math
 import itertools # Added
 

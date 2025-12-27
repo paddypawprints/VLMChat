@@ -8,11 +8,11 @@ history formatters, including error handling and extensibility.
 import pytest
 from typing import Type
 
-from src.prompt.history import HistoryFormat
-from src.prompt.history_format_factory import HistoryFormatFactory
-from src.prompt.history_format_base import HistoryFormatBase
-from src.prompt.history_format_xml import HistoryFormatXML
-from src.prompt.history_format_minimal import HistoryFormatMinimal
+from vlmchat.prompt.history import HistoryFormat
+from vlmchat.prompt.history_format_factory import HistoryFormatFactory
+from vlmchat.prompt.history_format_base import HistoryFormatBase
+from vlmchat.prompt.history_format_xml import HistoryFormatXML
+from vlmchat.prompt.history_format_minimal import HistoryFormatMinimal
 
 
 class TestHistoryFormatFactory:

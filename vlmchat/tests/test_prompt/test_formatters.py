@@ -9,9 +9,9 @@ import pytest
 from collections import deque
 from abc import ABC
 
-from src.prompt.history_format_base import HistoryFormatBase
-from src.prompt.history_format_xml import HistoryFormatXML
-from src.prompt.history_format_minimal import HistoryFormatMinimal
+from vlmchat.prompt.history_format_base import HistoryFormatBase
+from vlmchat.prompt.history_format_xml import HistoryFormatXML
+from vlmchat.prompt.history_format_minimal import HistoryFormatMinimal
 from .conftest import TestUtilities
 
 

@@ -7,7 +7,24 @@
     "onnx_base_path": "~/onnx",
     "clip_model_name": "MobileCLIP2-S0",
     "clip_pretrained_path": "/Users/patrick/Dev/VLMChat/src/models/MobileClip/ml-mobileclip/mobileclip2_s0.pt",
-    "clip_model_kwargs": {"image_mean": [0, 0, 0], "image_std": [1, 1, 1]}
+    "clip_model_kwargs": {
+      "image_mean": [
+        0,
+        0,
+        0
+      ],
+      "image_std": [
+        1,
+        1,
+        1
+      ]
+    },
+    "yolo_engine_path": "~/Dev/model-rt-build/platform/jetson/release_artifacts/yolov8n_fp16.engine",
+    "clip_image_engine_path": "~/Dev/model-rt-build/platform/jetson/release_artifacts/image_fp16.engine",
+    "clip_text_engine_path": "~/Dev/model-rt-build/platform/jetson/release_artifacts/text_fp16.engine",
+    "special_tokens": {
+      "end_of_utterance": "<end_of_utterance>"
+    }
   },
   "conversation": {
     "max_pairs": 10,
@@ -36,7 +53,10 @@
     "project_root": "None",
     "coco_labels_path": "assets/coco_labels.txt",
     "captured_images_dir": "captured_images",
-    "pipeline_dirs": ["~/pipelines", "./pipelines"],
+    "pipeline_dirs": [
+      "~/pipelines",
+      "./pipelines"
+    ],
     "metrics_file": "~/metrics.json"
   },
   "platform": "mac"

@@ -8,8 +8,8 @@ the History class and provides unified interface for prompt operations.
 import pytest
 from PIL import Image
 
-from src.prompt.prompt import Prompt
-from src.prompt.history import History, HistoryFormat
+from vlmchat.prompt.prompt import Prompt
+from vlmchat.prompt.history import History, HistoryFormat
 from .conftest import TestUtilities
 
 

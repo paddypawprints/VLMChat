@@ -17,12 +17,12 @@ Tests 16 & 17 specifically evaluate CLIP's color detection capabilities
 and are documented in CLIP_TESTING_RESULTS.md.
 
 Usage:
-    python -m src.pipeline.pipeline_test                    # Run all non-interactive tests
-    python -m src.pipeline.pipeline_test --interactive      # Include interactive/GUI tests
-    python -m src.pipeline.pipeline_test --test 16          # Run specific test(s)
-    python -m src.pipeline.pipeline_test --test 1,3,5       # Run multiple tests
-    python -m src.pipeline.pipeline_test --test 1-4         # Run test range
-    python -m src.pipeline.pipeline_test --log-level INFO   # Set log level
+    python -m src.pipeline_pipeline_test                    # Run all non-interactive tests
+    python -m src.pipeline_pipeline_test --interactive      # Include interactive/GUI tests
+    python -m src.pipeline_pipeline_test --test 16          # Run specific test(s)
+    python -m src.pipeline_pipeline_test --test 1,3,5       # Run multiple tests
+    python -m src.pipeline_pipeline_test --test 1-4         # Run test range
+    python -m src.pipeline_pipeline_test --log-level INFO   # Set log level
 """
 
 if __name__ == "__main__":
@@ -985,7 +985,7 @@ if __name__ == "__main__":
         detector_e = DetectorTask("detector_e")
         detector_f = DetectorTask("detector_f")
         ordered_merge = OrderedMergeConnector("ordered_merge")
-        ordered_merge.configure({"order": "2,1"})  # Reverse order
+        ordered_merge.configure(order="2,1")  # Reverse order
         
         # Set contracts
         split_connector.input_contract = {ContextDataType.IMAGE: list}
@@ -1231,7 +1231,7 @@ if __name__ == "__main__":
                 import traceback
                 traceback.print_exc()
     
-    def run_test_9_interactive_clusterer(factory, collector, clip_model, semantic_provider, 
+    def run_test_9_interactive_clusterer(factory, collector, text_model, semantic_provider, 
                                          config: TestConfig, interactive_mode: bool = False):
         """Test 9: NoneCamera → YOLO → Clusterer → DetectionViewer"""
         print_test_header(9, "NoneCamera → YOLO → Clusterer → DetectionViewer")
@@ -1343,16 +1343,16 @@ if __name__ == "__main__":
             
             # Configure clusterer with actual objects
             clusterer_task10.detector = None
-            clusterer_task10.configure({
-                "type": "clusterer",
-                "source": detector_task10.detector,
-                "semantic_provider": semantic_provider,
-                "max_clusters": str(MAX_CLUSTERS),
-                "merge_threshold": str(MERGE_THRESHOLD),
-                "proximity_weight": str(PROXIMITY_WEIGHT),
-                "size_weight": str(SIZE_WEIGHT),
-                "semantic_pair_weight": str(SEMANTIC_PAIR_WEIGHT),
-                "semantic_single_weight": str(SEMANTIC_SINGLE_WEIGHT)
+            clusterer_task10.configure(
+                type="clusterer",
+                source=detector_task10.detector,
+                semantic_provider=semantic_provider,
+                max_clusters=str(MAX_CLUSTERS),
+                merge_threshold=str(MERGE_THRESHOLD),
+                proximity_weight=str(PROXIMITY_WEIGHT),
+                size_weight=str(SIZE_WEIGHT),
+                semantic_pair_weight=str(SEMANTIC_PAIR_WEIGHT),
+                semantic_single_weight=str(SEMANTIC_SINGLE_WEIGHT)
             })
             
             # Configure CLIP task with actual model
@@ -1565,17 +1565,17 @@ if __name__ == "__main__":
             
             # Configure clusterer
             clusterer_task11.detector = None
-            clusterer_task11.configure({
-                "type": "clusterer",
-                "source": detector_task11.detector,
-                "semantic_provider": semantic_provider,
-                "max_clusters": str(MAX_CLUSTERS),
-                "merge_threshold": str(MERGE_THRESHOLD),
-                "proximity_weight": str(PROXIMITY_WEIGHT),
-                "size_weight": str(SIZE_WEIGHT),
-                "semantic_pair_weight": str(SEMANTIC_PAIR_WEIGHT),
-                "semantic_single_weight": str(SEMANTIC_SINGLE_WEIGHT)
-            })
+            clusterer_task11.configure(
+                type="clusterer",
+                source=detector_task11.detector,
+                semantic_provider=semantic_provider,
+                max_clusters=str(MAX_CLUSTERS),
+                merge_threshold=str(MERGE_THRESHOLD),
+                proximity_weight=str(PROXIMITY_WEIGHT),
+                size_weight=str(SIZE_WEIGHT),
+                semantic_pair_weight=str(SEMANTIC_PAIR_WEIGHT),
+                semantic_single_weight=str(SEMANTIC_SINGLE_WEIGHT)
+            )
             
             # Create DetectionViewer only if interactive mode
             display_time_ms = 3000 if interactive_mode else 0
@@ -1919,17 +1919,17 @@ if __name__ == "__main__":
             })
             
             clusterer_task13.detector = None
-            clusterer_task13.configure({
-                "type": "clusterer",
-                "source": detector_task13.detector,
-                "semantic_provider": semantic_provider,
-                "max_clusters": str(MAX_CLUSTERS),
-                "merge_threshold": str(MERGE_THRESHOLD),
-                "proximity_weight": str(PROXIMITY_WEIGHT),
-                "size_weight": str(SIZE_WEIGHT),
-                "semantic_pair_weight": str(SEMANTIC_PAIR_WEIGHT),
-                "semantic_single_weight": str(SEMANTIC_SINGLE_WEIGHT)
-            })
+            clusterer_task13.configure(
+                type="clusterer",
+                source=detector_task13.detector,
+                semantic_provider=semantic_provider,
+                max_clusters=str(MAX_CLUSTERS),
+                merge_threshold=str(MERGE_THRESHOLD),
+                proximity_weight=str(PROXIMITY_WEIGHT),
+                size_weight=str(SIZE_WEIGHT),
+                semantic_pair_weight=str(SEMANTIC_PAIR_WEIGHT),
+                semantic_single_weight=str(SEMANTIC_SINGLE_WEIGHT)
+            )
             
             if interactive_mode and viewer13:
                 viewer_task13 = DetectionViewer(
@@ -2174,17 +2174,17 @@ if __name__ == "__main__":
             })
             
             clusterer_task14.detector = None
-            clusterer_task14.configure({
-                "type": "clusterer",
-                "source": detector_task14.detector,
-                "semantic_provider": semantic_provider,
-                "max_clusters": str(MAX_CLUSTERS),
-                "merge_threshold": str(MERGE_THRESHOLD),
-                "proximity_weight": str(PROXIMITY_WEIGHT),
-                "size_weight": str(SIZE_WEIGHT),
-                "semantic_pair_weight": str(SEMANTIC_PAIR_WEIGHT),
-                "semantic_single_weight": str(SEMANTIC_SINGLE_WEIGHT)
-            })
+            clusterer_task14.configure(
+                type="clusterer",
+                source=detector_task14.detector,
+                semantic_provider=semantic_provider,
+                max_clusters=str(MAX_CLUSTERS),
+                merge_threshold=str(MERGE_THRESHOLD),
+                proximity_weight=str(PROXIMITY_WEIGHT),
+                size_weight=str(SIZE_WEIGHT),
+                semantic_pair_weight=str(SEMANTIC_PAIR_WEIGHT),
+                semantic_single_weight=str(SEMANTIC_SINGLE_WEIGHT)
+            )
             
             if interactive_mode and viewer14:
                 viewer_task14 = DetectionViewer(
@@ -2818,9 +2818,9 @@ if __name__ == "__main__":
         "a boat on water"
     ]
     
-    # Try to initialize CLIP model and semantic provider
+    # Try to initialize CLIP text model and semantic provider
     try:
-        from models.MobileClip.clip_model import CLIPModel
+        from models.MobileClip.clip_text_model import ClipTextModel
         from object_detector.semantic_provider import ClipSemanticProvider
         from utils.config import VLMChatConfig
         from object_detector.coco_categories import CocoCategory
@@ -2840,16 +2840,16 @@ if __name__ == "__main__":
                 model = ModelConfig()
             vlm_config = MockConfig()  # type: ignore
         
-        # Initialize CLIP model
+        # Initialize CLIP text model
         print("\n" + "=" * 60)
-        print("Initializing CLIP Model and Semantic Provider...")
+        print("Initializing CLIP Text Model and Semantic Provider...")
         print("-" * 60)
-        clip_model = CLIPModel(config=vlm_config, collector=collector)
-        print("✓ CLIPModel initialized")
+        text_model = ClipTextModel(config=vlm_config, collector=collector)
+        print("✓ ClipTextModel initialized")
         
         # Initialize semantic provider
         semantic_provider = ClipSemanticProvider(
-            clip_model=clip_model,
+            text_model=text_model,
             user_prompts=SEMANTIC_TEST_PROMPTS,
             embeddings_cache_path="category_pair_embeddings.json",
             batch_size=5
@@ -2867,7 +2867,7 @@ if __name__ == "__main__":
     
     # Test 9: NoneCamera → YOLO → Clusterer → DetectionViewer (Interactive only)
     if should_run_test(9):
-        run_test_9_interactive_clusterer(factory, collector, clip_model, semantic_provider, TEST_CONFIGS[9], interactive_mode)
+        run_test_9_interactive_clusterer(factory, collector, text_model, semantic_provider, TEST_CONFIGS[9], interactive_mode)
     
     # Test 10: Full Pipeline with YOLO -> [Clusterer, Pass] -> DetectionMerge(8) -> ClipVision
     if should_run_test(10):
@@ -2914,12 +2914,12 @@ if __name__ == "__main__":
     else:
         print("All non-interactive tests completed successfully!")
     print("\nUsage:")
-    print("  python -m src.pipeline.pipeline_test                    # Run all non-interactive tests")
-    print("  python -m src.pipeline.pipeline_test --interactive      # Include interactive/GUI tests")
-    print("  python -m src.pipeline.pipeline_test --test 9           # Run specific test(s)")
-    print("  python -m src.pipeline.pipeline_test --test 1,3,5       # Run multiple tests")
-    print("  python -m src.pipeline.pipeline_test --test 1-4         # Run test range")
-    print("  python -m src.pipeline.pipeline_test --test 9 --interactive  # Run test 9 with GUI")
-    print("  python -m src.pipeline.pipeline_test --log-level INFO   # Set log level (DEBUG/INFO/WARNING/ERROR)")
+    print("  python -m src.pipeline_pipeline_test                    # Run all non-interactive tests")
+    print("  python -m src.pipeline_pipeline_test --interactive      # Include interactive/GUI tests")
+    print("  python -m src.pipeline_pipeline_test --test 9           # Run specific test(s)")
+    print("  python -m src.pipeline_pipeline_test --test 1,3,5       # Run multiple tests")
+    print("  python -m src.pipeline_pipeline_test --test 1-4         # Run test range")
+    print("  python -m src.pipeline_pipeline_test --test 9 --interactive  # Run test 9 with GUI")
+    print("  python -m src.pipeline_pipeline_test --log-level INFO   # Set log level (DEBUG/INFO/WARNING/ERROR)")
     print("=" * 60)
 

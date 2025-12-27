@@ -18,8 +18,8 @@ for p in (REPO_ROOT, SRC_ROOT):
 
 # --- Import classes to be tested ---
 # These imports will now work:
-from src.object_detector.detection_base import Detection
-from src.object_detector.object_clusterer import ObjectClusterer, ISemanticCostProvider
+from vlmchat.object_detector.detection_base import Detection
+from vlmchat.object_detector.object_clusterer import ObjectClusterer, ISemanticCostProvider
 
 # --- End Imports ---
 

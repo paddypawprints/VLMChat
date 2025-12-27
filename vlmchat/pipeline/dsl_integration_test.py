@@ -4,9 +4,9 @@ End-to-end DSL integration test with PipelineRunner.
 Tests that DSL-parsed pipelines can actually execute, not just parse.
 """
 
-from src.pipeline.dsl_parser import DSLParser, create_task_registry
-from src.pipeline.pipeline_runner import PipelineRunner
-from src.pipeline.task_base import Context, ContextDataType
+from vlmchat.pipeline.dsl_parser import DSLParser, create_task_registry
+from vlmchat.pipeline.pipeline_runner import PipelineRunner
+from vlmchat.pipeline.task_base import Context, ContextDataType
 
 
 def test_dsl_to_execution_simple():

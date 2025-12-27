@@ -276,12 +276,14 @@ class AverageInstrument(Instrument):
         with self._lock:
             if not self._buckets:
                 return 0.0
-            best = None
+            best: Optional[str] = None
             best_count = -1
             for b, (s, c) in self._buckets.items():
                 if c > best_count:
                     best = b
                     best_count = c
+            if best is None:
+                return 0.0
             s, c = self._buckets[best]
             return float(s) / float(c)
 

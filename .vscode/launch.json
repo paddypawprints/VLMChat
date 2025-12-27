@@ -9,7 +9,8 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/main.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "python": "/home/patrick/Dev/jetson/bin/python"
         }
     ]
 }

@@ -33,6 +33,18 @@ class BaseRuntime(ABC):
         e.g., for ONNX, this would check if the model file exists and ONNX Runtime is installed.
         """
         pass
+    
+    @property
+    def native_image_format(self) -> Optional[str]:
+        """
+        Returns the image format this backend expects/prefers.
+        
+        Valid values: 'pil', 'numpy', 'torch_cpu', 'torch_gpu'
+        Returns None if backend doesn't process images or has no preference.
+        
+        Tasks should provide images in this format for optimal performance.
+        """
+        return None  # Default: no image processing or no preference
 
 
 class BaseModel(ABC):

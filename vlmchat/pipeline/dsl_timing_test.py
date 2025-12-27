@@ -4,7 +4,7 @@ Test timing syntax in DSL parser.
 Tests ~advisory and >=enforced timing constraints.
 """
 
-from src.pipeline.dsl_parser import DSLParser, create_task_registry
+from vlmchat.pipeline.dsl_parser import DSLParser, create_task_registry
 
 
 def test_advisory_timing():

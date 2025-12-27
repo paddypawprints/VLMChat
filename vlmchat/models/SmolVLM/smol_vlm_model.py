@@ -15,7 +15,7 @@ from PIL import Image
 from prompt.prompt import Prompt
 
 from models.SmolVLM.model_config import ModelConfig
-from models.SmolVLM.runtime_base import RuntimeBase
+from models.SmolVLM.runtime_base import SmolVLMRuntimeBase
 from models.SmolVLM.transformers_backend import TransformersBackend
 from models.SmolVLM.onnx_backend import OnnxBackend
 from utils.config import VLMChatConfig
@@ -31,21 +31,21 @@ class SmolVLMModel:
     Both backends implement the same interface so behavior is consistent.
     """
 
-    def __init__(self, config: VLMChatConfig, collector: Optional[Collector] = null_collector()):
+    def __init__(self, config: VLMChatConfig, collector: Collector = null_collector()):
         self._model_config = ModelConfig(config)
         self._config = config
         self._use_onnx = config.model.use_onnx
         # Optional metrics collector; models/backends may use this for telemetry
-        self.collector: Optional[Collector] = collector
+        self.collector: Collector = collector
         self.collector.register_timeseries("smolVLM-inference", ["inputs","generate","initialize","first-token"], ttl_seconds=600)
        # instantiate the appropriate runtime instance (only one)
         # use a plain assignment here (type comments are fine for static checkers)
-        with self.collector.duration_timer("smolVLM-inference",{"initialize" : None}):
-            self._runtime = self._make_runtime(self._use_onnx, config)  # type: RuntimeBase
+        with self.collector.duration_timer("smolVLM-inference",{"initialize" : ""}):
+            self._runtime = self._make_runtime(self._use_onnx, config)  # type: SmolVLMRuntimeBase
 
         logger.info(f"SmolVLMModel runtime set to: {'onnx' if self._use_onnx else 'transformers'}")
 
-    def _make_runtime(self, use_onnx: bool, config: VLMChatConfig) -> RuntimeBase:
+    def _make_runtime(self, use_onnx: bool, config: VLMChatConfig) -> SmolVLMRuntimeBase:
         """Create and return a runtime instance based on use_onnx flag.
 
         If ONNX creation fails or reports not available, fall back to Transformers.
@@ -102,10 +102,10 @@ class SmolVLMModel:
 
         try:
             # use the public collector attribute
-            with self.collector.duration_timer("smolVLM-inference",{"inputs" : None}):
+            with self.collector.duration_timer("smolVLM-inference",{"inputs" : ""}):
                 # Prepare inputs and choose streaming or non-streaming generation
                 inputs = self._runtime.prepare_inputs(messages, images)
-            with self.collector.duration_timer("smolVLM-inference", {"generate": None}):
+            with self.collector.duration_timer("smolVLM-inference", {"generate": ""}):
                 if stream_output:
                     # prefer streaming generator when requested; wrap generator to record
                     # time-to-first-token using the collector's DurationTimer
@@ -135,7 +135,7 @@ class SmolVLMModel:
         # Recreate backend according to requested selection
         if b == 'onnx':
             # attempt to create Onnx runtime and verify availability
-            runtime_candidate = self._make_runtime(True, self._model_config)
+            runtime_candidate = self._make_runtime(True, self._config)
             if getattr(runtime_candidate, 'is_available', False):
                 self._use_onnx = True
                 self._runtime = runtime_candidate
@@ -143,15 +143,15 @@ class SmolVLMModel:
                 raise RuntimeError('ONNX runtime not available')
         elif b == 'transformers':
             self._use_onnx = False
-            self._runtime = self._make_runtime(False, self._model_config)
+            self._runtime = self._make_runtime(False, self._config)
         else:  # auto
-            runtime_candidate = self._make_runtime(True, self._model_config)
+            runtime_candidate = self._make_runtime(True, self._config)
             if getattr(runtime_candidate, 'is_available', False):
                 self._use_onnx = True
                 self._runtime = runtime_candidate
             else:
                 self._use_onnx = False
-                self._runtime = self._make_runtime(False, self._model_config)
+                self._runtime = self._make_runtime(False, self._config)
 
     def current_runtime(self) -> str:
         """Return the currently selected runtime as a string."""
@@ -164,7 +164,7 @@ class SmolVLMModel:
         stops it as soon as the first token is yielded. If no token is yielded
         the timer is stopped in the finally block.
         """
-        timer = self.collector.duration_timer("smolVLM-inference", {"first-token": None})
+        timer = self.collector.duration_timer("smolVLM-inference", {"first-token": ""})
         # Manually enter the context so we can exit on first token
         enter_result = None
         try:

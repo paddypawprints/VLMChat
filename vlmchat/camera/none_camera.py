@@ -102,7 +102,7 @@ class NoneCamera(BaseCamera):
             Tuple[str, Image.Image]: File path/URL and PIL Image object
         """
         # Try to get image from Environment first
-        from src.pipeline.environment import Environment
+        from vlmchat.pipeline.environment import Environment
         env = Environment.get_instance()
         
         # First check for chat app image (highest priority)

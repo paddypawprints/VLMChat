@@ -10,6 +10,9 @@ __pycache__/
 # model weights
 *.pt
 
+# TensorRT engine files
+*.engine
+
 # Generated code (from specs)
 web-platform/shared/types/
 device-sdk/edge_llm_client/models/

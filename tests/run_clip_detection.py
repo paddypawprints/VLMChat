@@ -16,11 +16,11 @@ for p in [str(PROJECT_ROOT), str(SRC_DIR)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from src.utils.config import VLMChatConfig
-from src.pipeline.dsl_parser import DSLParser, create_task_registry
-from src.pipeline.pipeline_runner import PipelineRunner
-from src.pipeline.task_base import Context
-from src.metrics.metrics_collector import Collector
+from vlmchat.utils.config import VLMChatConfig
+from vlmchat.pipeline.dsl_parser import DSLParser, create_task_registry
+from vlmchat.pipeline.pipeline_runner import PipelineRunner
+from vlmchat.pipeline.task_base import Context
+from vlmchat.metrics.metrics_collector import Collector
 
 # Configure logging
 logging.basicConfig(

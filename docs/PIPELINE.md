@@ -11,6 +11,81 @@ The VLMChat pipeline system provides a flexible, DAG-based architecture for comp
 
 This separation enables DSL validation, visualization, and optimization while maintaining efficient runtime execution.
 
+## Implementation Status
+
+### ✅ Fully Implemented Features
+
+**DSL & Parsing:**
+- ✅ Lexer with full token support (identifiers, operators, literals, strings)
+- ✅ Recursive descent parser building AST (TaskNode, SequenceNode, ParallelNode, LoopNode)
+- ✅ Sequential pipelines: `task1 -> task2 -> task3`
+- ✅ Parallel branches: `[branch1, branch2, branch3]`
+- ✅ Loops with conditions: `{input -> :break_on(code=1): -> process}`
+- ✅ Control operators: `:operator:` syntax for loop conditions
+- ✅ Timing annotations: `task<100ms>` and `task<<50ms>>` (advisory/enforced)
+- ✅ Parser returns `(sources, pipeline)` tuple for stream source support
+
+**Execution Engine:**
+- ✅ Cursor-queue execution model with ThreadPoolExecutor
+- ✅ Doubly-linked task graph navigation (upstream/downstream tasks)
+- ✅ Fork execution with independent context copies per branch
+- ✅ Merge coordination with multi-cursor synchronization
+- ✅ Loop execution via LoopConnector with break/continue support
+- ✅ Exit code propagation through pipeline (0=success, 1=empty, 2=exception, 3+=custom)
+- ✅ Trace event recording for debugging and metrics
+- ✅ Metrics collection (execution time, task counts)
+
+**Stream Sources:**
+- ✅ Stream source polling with configurable intervals
+- ✅ `wait(source)` syntax for source-driven pipelines
+- ✅ Source registration and cursor spawning at wait() tasks
+- ✅ Pipeline mode vs continuous mode (`pipeline=true/false`)
+- ✅ Multiple sources per pipeline with independent polling
+
+**Exception Handling:**
+- ✅ Context-based exception propagation (exception, exception_source_task)
+- ✅ Sequential flow: exceptions flow forward, tasks auto-skip
+- ✅ Fork replication: exceptions copy to all branches
+- ✅ Merge early exit: first exception terminates other branches
+- ✅ Error handler tasks: LogErrorTask, ClearErrorTask, OnErrorTask, RethrowErrorTask
+- ✅ Optional error handling via `handles_exceptions=True` flag
+- ✅ Type-specific exception filtering in OnErrorTask
+
+**Loop Control:**
+- ✅ BreakOnCondition: exit loop on matching exit codes
+- ✅ ContinueOnCondition: retry loop on matching exit codes
+- ✅ DiagnosticCondition: max iterations and timeout limits
+- ✅ BreakOnFailCondition: simple break on any non-zero exit code
+- ✅ Stack-based loop state management for nested loops
+- ✅ Loop iteration counting and timing metrics
+
+**Task System:**
+- ✅ BaseTask with input/output contracts
+- ✅ Connector base class for structural tasks (Fork, Merge, Loop)
+- ✅ Task configuration via `configure(params)` from DSL
+- ✅ Task registry with `@register_task` decorator
+- ✅ Parameter validation and type conversion
+- ✅ Time budget support for cooperative scheduling
+
+**Comprehensive Test Coverage:**
+- ✅ Exception propagation (6 tests: sequential, fork, merge, handlers)
+- ✅ Loop control (3 tests: break_on with exit codes)
+- ✅ Parser functionality (DSL syntax validation)
+- ✅ Integration tests (full pipeline execution)
+
+### 🎯 Current Capabilities
+
+The pipeline system now supports:
+
+1. **Complex Control Flow**: Sequential, parallel, loops, and nested combinations
+2. **Stream Processing**: Source-driven pipelines with continuous polling
+3. **Error Recovery**: Exception propagation with handler tasks for graceful degradation
+4. **Loop Control**: Exit code-based conditions for dynamic iteration
+5. **Concurrent Execution**: ThreadPoolExecutor with cursor-based parallelism
+6. **Type Safety**: Input/output contracts with static validation
+7. **Observability**: Trace events and metrics for monitoring
+8. **Flexible DSL**: Declarative syntax for complex workflows
+
 ## Core Concepts
 
 ### Three-Phase Pipeline Architecture

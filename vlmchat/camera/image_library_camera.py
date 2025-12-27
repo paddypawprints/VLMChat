@@ -36,8 +36,6 @@ class ImageLibraryCamera(BaseCamera):
         width: int = 640,
         height: int = 480,
         framerate: int = 5,
-        manual_mode: bool = False,
-        loop_once: bool = False,
         platform: Platform = Platform.RPI,
         device: Device = Device.CAMERA0,
         save_dir: str = "./captures",
@@ -51,8 +49,6 @@ class ImageLibraryCamera(BaseCamera):
             width: Target image width in pixels
             height: Target image height in pixels
             framerate: Frame rate (images per second)
-            manual_mode: If True, images advance only on capture_single_image() calls (no background thread)
-            loop_once: If True, stop after processing all images once (don't loop). Sets exhausted flag.
             platform: Platform type (defaults to RPI)
             device: Device identifier (defaults to CAMERA0)
             save_dir: Directory for saving captured images
@@ -65,8 +61,6 @@ class ImageLibraryCamera(BaseCamera):
         self.height = height
         self.framerate = framerate
         self.frame_duration = 1.0 / framerate if framerate > 0 else 0.2
-        self.manual_mode = manual_mode
-        self.loop_once = loop_once
         self.save_dir = save_dir
         
         # Validate base directory
@@ -87,7 +81,6 @@ class ImageLibraryCamera(BaseCamera):
         self._current_index: int = 0
         self._current_image: Optional[Image.Image] = None
         self._current_path: Optional[str] = None
-        self._exhausted: bool = False  # Set to True when all images processed (loop_once mode)
         self._lock = threading.Lock()
         
         # Thread control
@@ -267,12 +260,7 @@ class ImageLibraryCamera(BaseCamera):
                 # Get the next image
                 with self._lock:
                     if self._current_index >= len(self._image_paths):
-                        if self.loop_once:
-                            self._exhausted = True
-                            logger.info("ImageLibraryCamera: All images processed (loop_once=True)")
-                            break  # Exit thread
-                        else:
-                            self._current_index = 0  # Loop back to start
+                        self._current_index = 0  # Loop back to start
                     
                     current_path = self._image_paths[self._current_index]
                     self._current_index += 1
@@ -300,11 +288,6 @@ class ImageLibraryCamera(BaseCamera):
     
     def start(self):
         """Start the camera thread."""
-        if self.manual_mode:
-            logger.info("ImageLibraryCamera in manual mode, skipping thread start")
-            self._started = True
-            return
-        
         with self._lock:
             if self._started:
                 logger.warning("ImageLibraryCamera already started")
@@ -335,55 +318,21 @@ class ImageLibraryCamera(BaseCamera):
         """
         Capture the currently available image.
         
-        In manual mode, this advances to the next image on each call.
-        In threaded mode, this returns whatever the background thread has loaded.
-        
         Returns:
             Tuple[str, Image.Image]: File path and PIL Image object
         """
         with self._lock:
-            # Manual mode: advance to next image on each call
-            if self.manual_mode:
+            if self._current_image is None:
+                # If no image is loaded yet, load the first one
                 if self._image_paths:
-                    if self._current_index >= len(self._image_paths):
-                        if self.loop_once:
-                            self._exhausted = True
-                            logger.info("ImageLibraryCamera: All images processed (loop_once=True)")
-                            # Return last image when exhausted
-                        else:
-                            self._current_index = 0  # Loop back to start
-                    
-                    if not self._exhausted:
-                        current_path = self._image_paths[self._current_index]
-                        self._current_index += 1
-                        
-                        try:
-                            logger.debug(f"Loading image: {current_path}")
-                            self._current_image = self._process_image(current_path)
-                            self._current_path = str(current_path)
-                        except Exception as e:
-                            logger.error(f"Failed to process image {current_path}: {e}")
-                            # Fall through to return current image or blank
+                    current_path = self._image_paths[0]
+                    self._current_image = self._process_image(current_path)
+                    self._current_path = str(current_path)
                 else:
                     # No images available, create a blank image
-                    if self._current_image is None:
-                        blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-                        self._current_image = Image.fromarray(blank)
-                        self._current_path = "blank"
-            
-            # Threaded mode or fallback: return current image
-            else:
-                if self._current_image is None:
-                    # If no image is loaded yet, load the first one
-                    if self._image_paths:
-                        current_path = self._image_paths[0]
-                        self._current_image = self._process_image(current_path)
-                        self._current_path = str(current_path)
-                    else:
-                        # No images available, create a blank image
-                        blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-                        self._current_image = Image.fromarray(blank)
-                        self._current_path = "blank"
+                    blank = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+                    self._current_image = Image.fromarray(blank)
+                    self._current_path = "blank"
             
             return self._current_path, self._current_image.copy()
     
@@ -391,11 +340,6 @@ class ImageLibraryCamera(BaseCamera):
     def save_path(self) -> str:
         """Get the directory path for saving captured images."""
         return self.save_dir
-    
-    def is_exhausted(self) -> bool:
-        """Check if all images have been processed (loop_once mode only)."""
-        with self._lock:
-            return self._exhausted
     
     def __del__(self):
         """Clean up resources."""

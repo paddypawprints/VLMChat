@@ -1,34 +1,32 @@
 """
-Backend interface for SmolVLM backends.
+Runtime base interface for SmolVLM backends.
 
-Defines the abstract methods both the Transformers and ONNX backends must
-implement so they present the same behavior to the SmolVLMModel facade.
+Defines the abstract methods that SmolVLM backends (Transformers, ONNX) must implement.
+Extends BaseRuntime from model_base with SmolVLM-specific methods.
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any, Dict, List, Generator
 
 from PIL import Image
+from models.model_base import BaseRuntime
 
 
-class RuntimeBase(ABC):
-    """Abstract base class for model backends."""
-
-    @property
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Whether the backend is available for generation."""
-        raise NotImplementedError()
+class SmolVLMRuntimeBase(BaseRuntime):
+    """Abstract base class for SmolVLM runtime backends."""
 
     @abstractmethod
     def prepare_inputs(self, messages: List[Dict], images: List[Image.Image]) -> Dict[str, Any]:
         """Prepare inputs from messages and images for this backend."""
+        raise NotImplementedError()
 
     @abstractmethod
     def generate(self, inputs: Dict[str, Any], max_new_tokens: int | None = None) -> str:
         """Generate the complete response as a string (non-streaming)."""
+        raise NotImplementedError()
 
     @abstractmethod
     def generate_stream(self, inputs: Dict[str, Any], max_new_tokens: int | None = None) -> Generator[str, None, None]:
         """Generate tokens/strings as a stream (generator)."""
+        raise NotImplementedError()

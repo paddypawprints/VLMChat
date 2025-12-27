@@ -68,7 +68,7 @@ def get_onnx_model_info(model_path: str, onnx_base_path: str) -> Dict[str, any]:
     Returns:
         dict: Information about ONNX model availability
     """
-    from src.utils.config import get_config
+    from vlmchat.utils.config import get_config
     config = get_config()
     onnx_path = config.model.get_onnx_model_path()
 

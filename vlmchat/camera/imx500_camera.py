@@ -14,6 +14,7 @@ from picamera2 import Picamera2
 from picamera2.devices import IMX500
 
 from .camera_base import BaseCamera, CameraModel, Platform, Device
+from metrics.metrics_collector import Collector
 
 
 class IMX500Camera(BaseCamera):
@@ -24,15 +25,16 @@ class IMX500Camera(BaseCamera):
     image capture and basic configuration.
     """
 
-    def __init__(self, platform: Platform = Platform.RPI, device: Device = Device.CAMERA0):
+    def __init__(self, collector: Collector, platform: Platform = Platform.RPI, device: Device = Device.CAMERA0):
         """
         Initialize IMX500 camera without neural processing.
 
         Args:
+            collector: Metrics collector instance
             platform: Platform type (defaults to RPI)
             device: Device identifier (defaults to CAMERA0)
         """
-        super().__init__(CameraModel.IMX500, platform, device)
+        super().__init__(collector, CameraModel.IMX500, platform, device)
 
         # Initialize IMX500 device
         self._imx500 = IMX500()
@@ -46,7 +48,7 @@ class IMX500Camera(BaseCamera):
         self._picam2.start(self._config, show_preview=False)
 
         # Create directory for captured images using configuration
-        from src.utils.config import get_config
+        from vlmchat.utils.config import get_config
         config = get_config()
         self._save_path = config.paths.captured_images_dir
         if not os.path.exists(self._save_path):

@@ -139,10 +139,10 @@ class Instrument(ABC):
     @staticmethod
     def load_instrument(json_str: str) -> 'Instrument':
         data = json.loads(json_str)
-        return Instrument.create(data)
+        return Instrument.from_dict(data)
     
     @staticmethod
-    def create(data: Dict[str, Any]) -> 'Instrument':
+    def from_dict(data: Dict[str, Any]) -> 'Instrument':
         """
         CLASS FACTORY: Create an Instrument instance (of the correct subclass) from a dictionary.
         The input dict is expected to be the output of Instrument.export().
@@ -153,7 +153,7 @@ class Instrument(ABC):
         if not subclass:
             raise ValueError(f"Unknown instrument type: {instrument_type}")
         
-        # Call the specific subclass's _deserialize method
+        # Call the specific subclass's create method
         return subclass.create(instrument_data)
     # --------------------------------------------
 
@@ -246,13 +246,15 @@ class Session:
 
     def load_instruments(self, data: Dict[str, Any]) -> None:
         for metrics in data:
-            item = metrics.get("metrics")
-            ts_name = item.get("timeseries")
-            instrument_data = item.get("instruments")
-            # Use the Instrument factory method
-            for instrument_json in instrument_data:
-                instrument = Instrument.create(instrument_json)
-                self.add_instrument(instrument, ts_name)
+            if isinstance(metrics, dict):
+                item = metrics
+                ts_name = item.get("timeseries")
+                instrument_data = item.get("instruments")
+                # Use the Instrument factory method
+                if instrument_data and ts_name:
+                    for instrument_json in instrument_data:
+                        instrument = Instrument.from_dict(instrument_json)
+                        self.add_instrument(instrument, ts_name)
 
     def start(self) -> None:
         """Start or restart the session."""
@@ -418,10 +420,11 @@ class Collector:
 
 
 # ----- Null (no-op) Collector (Updated with name)
-class NullCollector:
+class NullCollector(Collector):
     """A no-op collector that implements the same public API as Collector."""
 
     def __init__(self, name: str = "null_collector") -> None:
+        # Don't call super().__init__ to avoid creating locks and data structures
         self.name = name
 
     def register_timeseries(self, name: str, registered_attribute_keys: Optional[List[str]] = None, max_count: Optional[int] = None, ttl_seconds: Optional[float] = None) -> None:
@@ -436,8 +439,9 @@ class NullCollector:
     def unregister_session(self, session: Session) -> None:
         return None
 
-    def duration_timer(self, timeseries_name: str, attributes: Optional[Dict[str, str]] = None):
-        return nullcontext()
+    def duration_timer(self, timeseries_name: str, attributes: Optional[Dict[str, str]] = None) -> 'DurationTimer':
+        # Return a no-op DurationTimer that doesn't actually record anything
+        return DurationTimer(self, timeseries_name, attributes=attributes)
 
     def data_point(self, name: str, attributes: Optional[Dict[str, str]], value: Union[int, float], timestamp: Optional[float] = None) -> None:
         return None

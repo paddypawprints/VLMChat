@@ -12,8 +12,8 @@ import threading
 from typing import Optional, Dict, Any
 import os
 
-from src.metrics.metrics_collector import Collector
-from src.utils.config import VLMChatConfig
+from vlmchat.metrics.metrics_collector import Collector
+from vlmchat.utils.config import VLMChatConfig
 from .service_response import ServiceResponse
 from .service_response import ServiceResponse as SR
 
@@ -51,7 +51,7 @@ class VLMChatServices:
         self._collector = collector
         
         # Initialize Environment singleton
-        from src.pipeline.environment import Environment
+        from vlmchat.pipeline.environment import Environment
         self._environment = Environment.get_instance()
         
         # Pipeline execution state
@@ -89,7 +89,7 @@ class VLMChatServices:
 
     def _service_pipeline(self, dsl_or_file: str) -> ServiceResponse:
         """Load a pipeline from DSL or file."""
-        from src.pipeline.dsl_parser import DSLParser, create_task_registry
+        from vlmchat.pipeline.dsl_parser import DSLParser, create_task_registry
         
         # Determine if it's a file or inline DSL
         is_file = dsl_or_file.endswith('.dsl') or os.path.isfile(dsl_or_file)
@@ -160,8 +160,8 @@ class VLMChatServices:
         
         def run_pipeline():
             try:
-                from src.pipeline.pipeline_runner import PipelineRunner
-                from src.pipeline.task_base import Context
+                from vlmchat.pipeline.pipeline_runner import PipelineRunner
+                from vlmchat.pipeline.task_base import Context
                 
                 logger.info(f"Starting pipeline execution with overrides: {overrides}")
                 
@@ -231,7 +231,7 @@ class VLMChatServices:
         Returns:
             ServiceResponse with formatted trace output
         """
-        from src.pipeline.trace import print_trace_events
+        from vlmchat.pipeline.trace import print_trace_events
         from io import StringIO
         import sys
         
@@ -263,8 +263,8 @@ class VLMChatServices:
         Returns:
             ServiceResponse with formatted task documentation
         """
-        from src.pipeline.dsl_parser import create_task_registry
-        from src.pipeline.task_help_formatter import TaskHelpFormatter
+        from vlmchat.pipeline.dsl_parser import create_task_registry
+        from vlmchat.pipeline.task_help_formatter import TaskHelpFormatter
         
         # Get task registry
         registry = create_task_registry()

@@ -72,7 +72,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
 
         # Load default COCO labels if none provided
         if self._intrinsics.labels is None:
-            from src.utils.config import get_config
+            from vlmchat.utils.config import get_config
             config = get_config()
             coco_labels_path = os.path.join(config.paths.project_root, config.paths.coco_labels_path)
             with open(coco_labels_path, "r") as f:
@@ -100,7 +100,7 @@ class IMX500ObjectDetection(IMX500Camera, ObjectDetectionInterface):
         self._jobs = queue.Queue()
 
         # Create directory for captured images using configuration
-        from src.utils.config import get_config
+        from vlmchat.utils.config import get_config
         config = get_config()
         self._save_path = config.paths.captured_images_dir
         if not os.path.exists(self._save_path):

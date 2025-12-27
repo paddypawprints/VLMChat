@@ -17,7 +17,7 @@ import math # For batching
 
 # --- Import from project ---
 from .coco_categories import CocoCategory
-from models.MobileClip.clip_model import CLIPModel, CLIPRuntimeBase
+from models.MobileClip.clip_text_model import ClipTextModel
 
 logger = logging.getLogger(__name__)
 
@@ -65,24 +65,26 @@ class ClipSemanticProvider(ISemanticCostProvider):
     """
     
     def __init__(self, 
-                 clip_model: CLIPModel, 
+                 text_model: ClipTextModel, 
                  user_prompts: List[str],
                  embeddings_cache_path: str = "category_pair_embeddings.json",
-                 batch_size: int = 5):
+                 batch_size: Optional[int] = None):
         """
         Initializes the provider.
 
         Args:
-            clip_model: An initialized CLIPModel instance.
+            text_model: An initialized ClipTextModel instance.
             user_prompts: The list of user-defined text prompts to match against.
             embeddings_cache_path: Path to the JSON file for storing/reading
                                    category pair embeddings.
             batch_size: Number of text pairs to process in one batch.
+                       If None, uses the text_model's max_batch_size.
         """
-        self._clip_model = clip_model
+        self._text_model = text_model
         self._user_prompts = user_prompts
         self._embeddings_cache_path = embeddings_cache_path
-        self._batch_size = batch_size
+        # Use model's max_batch_size if not specified, otherwise use provided value
+        self._batch_size = batch_size if batch_size is not None else text_model.max_batch_size
         self._is_ready = False
         
         # Get all category labels from the Enum
@@ -112,20 +114,22 @@ class ClipSemanticProvider(ISemanticCostProvider):
             logger.info("ClipSemanticProvider: No user prompts provided. Semantic costs will be 1.0")
             self._is_ready = True  # Ready but with default costs
             return
+        
+        # Log backend information
+        runtime_name = getattr(self._text_model, '_runtime_name', 'unknown')
+        logger.info(f"Using CLIP text backend: {runtime_name} (max batch size: {self._batch_size})")
             
         logger.info(f"Building semantic cost matrices for {len(self._categories)} categories...")
         
         try:
-            runtime = self._clip_model._runtime_as_clip() # Access internal method
-            
             # --- Pre-calculate Prompt Embeddings (K) ---
-            prompt_features = runtime.encode_text(self._user_prompts)
+            prompt_features = self._text_model.encode(self._user_prompts, use_cache=True)
             
             # --- Algorithm 1: Build Pair Cost Matrix ---
-            self._build_pair_cost_matrix(runtime, prompt_features)
+            self._build_pair_cost_matrix(prompt_features)
             
             # --- Algorithm 2: Build Single Cost Matrix ---
-            self._build_single_cost_matrix(runtime, prompt_features)
+            self._build_single_cost_matrix(prompt_features)
                         
             self._is_ready = True
             logger.info("Semantic cost matrices built successfully.")
@@ -134,10 +138,10 @@ class ClipSemanticProvider(ISemanticCostProvider):
             logger.error(f"Failed to build semantic cost matrix: {e}", exc_info=True)
             self._is_ready = False
 
-    def _build_pair_cost_matrix(self, runtime: "CLIPRuntimeBase", prompt_features: torch.Tensor):
+    def _build_pair_cost_matrix(self, prompt_features: torch.Tensor):
         """Builds the matrix for the N*N "A and B" algorithm."""
         logger.info("Building Pair Cost (N*N) Matrix...")
-        pair_embeddings = self._get_or_create_pair_embeddings(runtime)
+        pair_embeddings = self._get_or_create_pair_embeddings()
         
         pair_texts = list(pair_embeddings.keys())
         pair_features_tensor = torch.tensor(
@@ -171,12 +175,12 @@ class ClipSemanticProvider(ISemanticCostProvider):
                     break
         logger.info("Pair Cost Matrix built.")
 
-    def _build_single_cost_matrix(self, runtime: "CLIPRuntimeBase", prompt_features: torch.Tensor):
+    def _build_single_cost_matrix(self, prompt_features: torch.Tensor):
         """Builds the matrix for the N*K "A vs P" * "B vs P" algorithm."""
         logger.info("Building Single Cost (N*K) Matrix...")
         
         # 1. Get N category embeddings
-        category_features = runtime.encode_text(self._categories)
+        category_features = self._text_model.encode(self._categories, use_cache=True)
         
         # 2. Build N x K similarity matrix (Cat vs Prompt)
         category_features = category_features.cpu()
@@ -218,7 +222,7 @@ class ClipSemanticProvider(ISemanticCostProvider):
         logger.info("Single Cost Matrix built.")
 
 
-    def _get_or_create_pair_embeddings(self, runtime: "CLIPRuntimeBase") -> Dict[str, List[float]]:
+    def _get_or_create_pair_embeddings(self) -> Dict[str, List[float]]:
         """
         Loads category pair embeddings from the cache file, or creates
         the file if it doesn't exist.
@@ -230,22 +234,17 @@ class ClipSemanticProvider(ISemanticCostProvider):
                 return embeddings
         except FileNotFoundError:
             logger.warning(f"Embedding cache not found. Creating new file at {self._embeddings_cache_path}")
-            return self.create_embeddings_cache_file(runtime)
+            return self.create_embeddings_cache_file()
         except Exception as e:
             logger.error(f"Error loading embedding cache: {e}. Rebuilding.", exc_info=True)
-            return self.create_embeddings_cache_file(runtime)
+            return self.create_embeddings_cache_file()
 
-    def create_embeddings_cache_file(self, runtime: Optional["CLIPRuntimeBase"] = None) -> Dict[str, List[float]]:
+    def create_embeddings_cache_file(self) -> Dict[str, List[float]]:
         """
         Generates embeddings for all category pairs and saves them to a file.
         
         This is a public method so it can be called explicitly as a build step.
         """
-        if runtime is None:
-            #if not self._clip_model.readiness():
-            #    raise RuntimeError("CLIPModel is not ready. Cannot generate embeddings.")
-            runtime = self._clip_model._runtime_as_clip()
-            
         logger.info(f"Generating new embeddings cache file at {self._embeddings_cache_path}...")
         
         # 1. Generate all pair texts
@@ -273,7 +272,7 @@ class ClipSemanticProvider(ISemanticCostProvider):
             logger.info(f"  Batch {i+1} texts: {batch_texts}")
             
             try:
-                embeddings_tensor = runtime.encode_text(batch_texts)
+                embeddings_tensor = self._text_model.encode(batch_texts, use_cache=False)
                 
                 # 3. Convert to a JSON-serializable format (dict of lists)
                 for text, embedding in zip(batch_texts, embeddings_tensor):
@@ -349,7 +348,7 @@ if __name__ == "__main__":
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     
     try:
-        from models.MobileClip.clip_model import CLIPModel
+        from models.MobileClip.clip_text_model import ClipTextModel
         from metrics.metrics_collector import null_collector
         from .coco_categories import CocoCategory
     except ImportError as e:
@@ -389,15 +388,12 @@ if __name__ == "__main__":
     TEST_CACHE_FILE = "test_embeddings_cache.json"
 
     try:
-        print("Initializing CLIPModel...")
-        clip_model = CLIPModel(config=mock_config, collector=null_collector()) # type: ignore
+        print("Initializing ClipTextModel...")
+        text_model = ClipTextModel(config=mock_config, collector=null_collector()) # type: ignore
         
-        #if not clip_model.readiness():
-        #    raise RuntimeError("Failed to initialize CLIPModel. Check model paths.")
-
         print("Initializing ClipSemanticProvider...")
         provider = ClipSemanticProvider(
-            clip_model=clip_model,
+            text_model=text_model,
             user_prompts=TEST_PROMPTS,
             embeddings_cache_path=TEST_CACHE_FILE,
             batch_size=5

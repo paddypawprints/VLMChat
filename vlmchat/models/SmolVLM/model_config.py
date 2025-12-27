@@ -10,7 +10,7 @@ loaded from the global application configuration.
 
 from dataclasses import dataclass
 from typing import Dict, Any
-from src.utils.config import VLMChatConfig
+from vlmchat.utils.config import VLMChatConfig
 
 
 @dataclass
@@ -41,6 +41,8 @@ class ModelConfig:
         and sets up default special tokens used by the model for conversation
         management and utterance boundaries.
         """
+        # Load model path from global config
+        self.model_path = config.model.model_path
 
         # Load values from global config if not explicitly provided
         if self.max_new_tokens is None:

@@ -12,10 +12,10 @@ from .none_camera import NoneCamera
 from utils.platform_detect import Platform
 
 # Import config and enums from the config module
-from utils.config import VLMChatConfig, CameraModel, Device
+from utils.config import VLMChatConfig, CameraModel
 
-# Assuming BaseCamera is in a 'camera' subdirectory
-from .camera_base import BaseCamera
+# Import Device from camera_base to match what cameras expect
+from .camera_base import BaseCamera, Device
 
 
 logger = logging.getLogger(__name__)
@@ -79,20 +79,21 @@ class CameraFactory:
         )
 
         # Dispatch based on resolved values
-        if config.platform == Platform.RPI and model_to_use == CameraModel.IMX500:
+        # Compare enum values to handle potential enum instance mismatches
+        if config.platform.value == Platform.RPI.value and model_to_use.value == CameraModel.IMX500.value:
             logger.info(f"CameraFactory: creating IMX500 camera on {config.platform.value} (device={device_to_use.value})")
-            from ..utils.imx500_camera import IMX500Camera # Assumed path
-            return IMX500Camera(platform=config.platform, device=device_to_use)
+            from camera.imx500_camera import IMX500Camera # Assumed path
+            return IMX500Camera(collector, platform=config.platform, device=device_to_use)
 
-        elif model_to_use == CameraModel.IMX477:
+        elif model_to_use.value == CameraModel.IMX477.value:
             raise NotImplementedError(f"IMX477 camera support not yet implemented")
 
-        elif config.platform == Platform.JETSON and model_to_use == CameraModel.IMX219:
+        elif config.platform.value == Platform.JETSON.value and model_to_use.value == CameraModel.IMX219.value:
             logger.info(f"CameraFactory: creating IMX219 camera on {config.platform.value} (device={device_to_use.value})")
-            from ..utils.imx219_camera import IMX219Camera # Assumed path
-            return IMX219Camera(platform=config.platform, device=device_to_use)
+            from camera.imx219_camera import IMX219Camera # Assumed path
+            return IMX219Camera(collector, platform=config.platform, device=device_to_use)
 
-        elif model_to_use == CameraModel.IMAGE_LIBRARY:
+        elif model_to_use.value == CameraModel.IMAGE_LIBRARY.value:
             logger.info(f"CameraFactory: creating ImageLibrary camera")
             from .image_library_camera import ImageLibraryCamera # Assumed path
             return ImageLibraryCamera(

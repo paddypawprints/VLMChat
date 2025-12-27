@@ -347,13 +347,16 @@ def run_interactive_chat(config: VLMChatConfig, collector: Collector) -> None:
         print_text("=== VLMChat Pipeline Executor ===")
         print_help_message()
         print_text("")
+        
+        import colorama
+        from colorama import Fore, Style
 
         while True:
             try:
                 # Show appropriate prompt based on console state
                 # Flashing prompt for running state: \033[5m makes it blink, \033[0m resets
                 if console_state['is_running']:
-                    prompt = "\n\033[5m>\033[0m "
+                    prompt = f"\n{Fore.RED}>{Style.RESET_ALL} "
                 else:
                     prompt = "\n> "
                 user_input = input_text(prompt).strip()

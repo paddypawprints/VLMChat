@@ -9,11 +9,11 @@ import pytest
 from collections import deque
 from PIL import Image
 
-from src.prompt.prompt import Prompt
-from src.prompt.history import History, HistoryFormat
-from src.prompt.history_format_factory import HistoryFormatFactory
-from src.prompt.history_format_xml import HistoryFormatXML
-from src.prompt.history_format_minimal import HistoryFormatMinimal
+from vlmchat.prompt.prompt import Prompt
+from vlmchat.prompt.history import History, HistoryFormat
+from vlmchat.prompt.history_format_factory import HistoryFormatFactory
+from vlmchat.prompt.history_format_xml import HistoryFormatXML
+from vlmchat.prompt.history_format_minimal import HistoryFormatMinimal
 from .conftest import TestUtilities
 
 

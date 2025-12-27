@@ -13,16 +13,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 from abc import abstractmethod
 
-# --- Third-party imports ---
-try:
-    import open_clip
-    OPEN_CLIP_AVAILABLE = True
-except ImportError:
-    OPEN_CLIP_AVAILABLE = False
-# --- End third-party imports ---
-
 from models.model_base import BaseModel, BaseRuntime
-from .fashion_clip_config import FashionClipConfig, get_fashion_clip_config
 from utils.config import VLMChatConfig
 from metrics.metrics_collector import Collector, null_collector
 
@@ -54,90 +45,6 @@ class FashionClipRuntimeBase(BaseRuntime):
         """
         pass
 
-# --- Concrete Backend Implementations ---
-
-class FashionClipOpenClipBackend(FashionClipRuntimeBase):
-    """
-    FashionClip runtime implementation using the 'open_clip' library with Marqo's FashionSigLIP model.
-    """
-    
-    def __init__(self, config: VLMChatConfig):
-        super().__init__(config)
-        self._model_config: FashionClipConfig = get_fashion_clip_config(config)
-        self.model = None
-        self.preprocess_val = None
-        self.tokenizer = None
-        self._is_ready = False
-        
-        if not OPEN_CLIP_AVAILABLE:
-            logger.error("FashionClipOpenClipBackend Error: 'open_clip' library not installed.")
-            return
-
-        try:
-            logger.info(f"Loading FashionClip model: {self._model_config.model_name}")
-            self.model, _, self.preprocess_val = open_clip.create_model_and_transforms(
-                self._model_config.model_name,
-                pretrained=self._model_config.pretrained_model_path if self._model_config.pretrained_model_path else None,
-                **self._model_config.model_kwargs
-            )
-            
-            self.tokenizer = open_clip.get_tokenizer(self._model_config.model_name)
-            
-            # Model needs to be in eval mode
-            self.model.eval()
-            
-            self._is_ready = True
-            logger.info("FashionClipOpenClipBackend loaded successfully.")
-
-        except Exception as e:
-            logger.error(f"Failed to load FashionClip model: {e}", exc_info=True)
-            self._is_ready = False
-
-    @property
-    def is_available(self) -> bool:
-        """Returns True if the model loaded successfully."""
-        return self._is_ready and self.model is not None
-
-    def encode_image(self, image: Image.Image) -> torch.Tensor:
-        """
-        Encodes a single PIL Image into normalized feature tensor.
-        
-        Args:
-            image: PIL Image to encode
-            
-        Returns:
-            Normalized image feature tensor with shape (1, feature_dim)
-        """
-        if not self.is_available or self.preprocess_val is None or self.model is None:
-            raise RuntimeError("FashionClipOpenClipBackend is not ready.")
-            
-        preprocessed_image = self.preprocess_val(image.convert("RGB")).unsqueeze(0)
-        
-        with torch.no_grad(), torch.cuda.amp.autocast():
-            image_features = self.model.encode_image(preprocessed_image, normalize=True)
-            
-        return image_features
-
-    def encode_text(self, text_prompts: List[str]) -> torch.Tensor:
-        """
-        Encodes a list of text strings into normalized feature tensor.
-        
-        Args:
-            text_prompts: List of text strings to encode
-            
-        Returns:
-            Normalized text feature tensor with shape (len(text_prompts), feature_dim)
-        """
-        if not self.is_available or self.tokenizer is None or self.model is None:
-            raise RuntimeError("FashionClipOpenClipBackend is not ready.")
-            
-        text = self.tokenizer(text_prompts)
-        
-        with torch.no_grad(), torch.cuda.amp.autocast():
-            text_features = self.model.encode_text(text, normalize=True)
-            
-        return text_features
-
 # --- FashionClip Model Facade ---
 
 class FashionClipModel(BaseModel):
@@ -148,7 +55,7 @@ class FashionClipModel(BaseModel):
     for comparing images against fashion-related text prompts.
     """
     
-    def __init__(self, config: VLMChatConfig, collector: Optional[Collector] = null_collector()):
+    def __init__(self, config: VLMChatConfig, collector: Collector = null_collector()):
         super().__init__(config, collector)
         
         # Cache for text prompt embeddings
@@ -171,9 +78,12 @@ class FashionClipModel(BaseModel):
         Raises:
             RuntimeError: If the requested runtime cannot be created
         """
+        # Import backends here to avoid circular imports
+        from .openclip_backend import OpenClipBackend
+        
         # 'auto' or 'open_clip' (default and only option for now)
         if runtime_name == 'auto' or runtime_name == 'open_clip':
-            backend = FashionClipOpenClipBackend(self._config)
+            backend = OpenClipBackend(self._config)
             if backend.is_available:
                 return backend, 'open_clip'
             

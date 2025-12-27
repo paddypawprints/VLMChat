@@ -34,8 +34,8 @@ for p in (str(REPO_ROOT), str(PROJECT_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from src.main.chat_console import run_interactive_chat
-from src.utils.config import VLMChatConfig, create_default_config_file
+from vlmchat.main.chat_console import run_interactive_chat
+from vlmchat.utils.config import VLMChatConfig, create_default_config_file
 
 
 def parse_arguments():
