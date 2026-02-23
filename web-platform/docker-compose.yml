@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-infisical-db.sh:/docker-entrypoint-initdb.d/init-infisical-db.sh
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -26,6 +27,41 @@ services:
       - mqtt_logs:/mosquitto/log
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Infisical - Disabled due to KMS initialization issues
+  # TODO: Re-enable when upstream bug is fixed or use Infisical Cloud
+  # infisical:
+  #   image: infisical/infisical:v0.80.0-postgres
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     DB_CONNECTION_URI: postgresql://postgres:postgres@db:5432/infisical
+  #     REDIS_URL: redis://redis:6379
+  #     ENCRYPTION_KEY: ${INFISICAL_ENCRYPTION_KEY:-change-this-to-random-64-char-hex}
+  #     AUTH_SECRET: ${INFISICAL_AUTH_SECRET:-change-this-to-random-32-char-string}
+  #     SITE_URL: http://localhost:8080
+  #     STANDALONE_MODE: "true"
+  #     TELEMETRY_ENABLED: "false"
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
   ai-service:
     build:
       context: .
@@ -41,19 +77,40 @@ services:
       dockerfile: Dockerfile.node
     ports:
       - "3000:5000"
+      # Mediasoup RTC ports (UDP)
+      - "40000-40099:40000-40099/udp"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/edge_llm
       AI_SERVICE_URL: http://ai-service:8000
       MQTT_URL: mqtt://mqtt:1883
+      REDIS_URL: redis://redis:6379
       NODE_ENV: development
+      # Mediasoup configuration
+      MEDIASOUP_LISTEN_IP: "0.0.0.0"
+      MEDIASOUP_ANNOUNCED_IP: "127.0.0.1"  # Change to public IP in production
+      # Infisical configuration (disabled - using env vars for now)
+      # INFISICAL_URL: http://infisical:8080
+      # INFISICAL_TOKEN: ${INFISICAL_TOKEN:-}  # Set this in .env after initial setup
     depends_on:
-      - db
-      - ai-service
-      - mqtt
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+      mqtt:
+        condition: service_started
+      # infisical:
+      #   condition: service_started
     volumes:
       - ./client:/app/client
       - ./server:/app/server
       - ./shared:/app/shared
+      - ../shared:/app/project-shared
+      - ../system_prompt.txt:/app/system_prompt.txt
+      - ../system_prompt.txt:/app/system_prompt.txt
       - ./attached_assets:/app/attached_assets
       - ./package.json:/app/package.json
       - ./vite.config.ts:/app/vite.config.ts
@@ -65,4 +122,5 @@ services:
 volumes:
   mqtt_data:
   mqtt_logs:
+  redis_data:
   postgres_data:

@@ -13,6 +13,7 @@ license = { text = "MIT" }
 # Keep core, lightweight runtime dependencies in the base install.
 dependencies = [
     "numpy==1.24.2",
+    "scipy==1.10.1",  # pinned: numpy 1.24.2 lacks numpy.exceptions required by scipy>=1.11
     "Pillow==9.4.0",
     "requests==2.28.1",
     "pydantic==2.11.9",

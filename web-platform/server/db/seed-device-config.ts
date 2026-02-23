@@ -1,0 +1,144 @@
+import { db } from '../db';
+import { deviceConfigs, users } from '@shared/schema';
+import { v4 as uuidv4 } from 'uuid';
+
+async function seedDeviceConfig() {
+  console.log('🌱 Seeding device configuration...');
+
+  // Get first user for createdBy/updatedBy
+  const firstUser = await db.select().from(users).limit(1);
+  
+  if (firstUser.length === 0) {
+    throw new Error('No users found. Please create a user first.');
+  }
+
+  const userId = firstUser[0].id;
+
+  // Default macOS device configuration
+  const macosConfig = {
+    tasks: {
+      yolo: {
+        model_path: "yolov8n.pt",
+        confidence: 0.25,
+        iou: 0.45,
+        device: "cpu"
+      },
+      attributes: {
+        model_path: "/Users/patrick/Downloads/pa_model_best_v3.onnx",
+        confidence_threshold: 0.5,
+        batch_size: 1
+      },
+      color_filter: {
+        regions: {
+          image: {
+            top: [0.0, 0.25],
+            middle_top: [0.25, 0.60],
+            middle_bottom: [0.40, 0.75],
+            bottom: [0.75, 1.0]
+          },
+          person: {
+            hat: [0.0, 0.15],
+            glasses: [0.1, 0.3],
+            upper_stride: [0.25, 0.65],
+            upper_logo: [0.25, 0.65],
+            upper_plaid: [0.25, 0.65],
+            upper_splice: [0.25, 0.65],
+            short_sleeve: [0.25, 0.5],
+            long_sleeve: [0.25, 0.65],
+            long_coat: [0.2, 0.8],
+            lower_stripe: [0.5, 0.95],
+            lower_pattern: [0.5, 0.95],
+            trousers: [0.5, 0.95],
+            shorts: [0.5, 0.8],
+            skirt_dress: [0.3, 0.95],
+            boots: [0.8, 1.0]
+          }
+        },
+        matching: {
+          attribute_match_threshold: 0.75,
+          min_confidence: 20.0,
+          brightness_tolerance: 100,
+          min_brightness: 120,
+          max_color_diff: 40,
+          use_ellipse: true,
+          ellipse_margin: 0.05,
+          min_confidence_named: 50.0,
+          hue_tolerance: 20.0,
+          sat_tolerance: 50.0,
+          val_tolerance: 50.0
+        },
+        hsv: {
+          min_saturation: 50,
+          min_value: 50,
+          min_pixel_percentage: 5.0,
+          white_saturation_max: 50,
+          black_value_max: 50
+        }
+      },
+      clusterer: {
+        max_clusters: 10,
+        merge_threshold: 0.6,
+        weights: {
+          proximity: 1.0,
+          size: 1.0,
+          category: 1.5,
+          attribute: 0.8
+        }
+      },
+      tracker: {
+        confirmation: {
+          threshold: 2,
+          window: 3.0
+        },
+        matching: {
+          iou_threshold: 0.5,
+          attribute_similarity_threshold: 0.7
+        },
+        cropping: {
+          horizontal_padding: 0.0,
+          vertical_padding: 0.0,
+          jpeg_quality: 95
+        },
+        lifecycle: {
+          cooldown_duration: 120.0,
+          ttl_duration: 300.0
+        }
+      }
+    },
+    sinks: {
+      mqtt: {
+        broker_host: "localhost",
+        broker_port: 1883,
+        device_id: "mac-dev-01",
+        device_type: "macos",
+        schemas_path: null
+      }
+    }
+  };
+
+  // Insert device config for macos
+  await db.insert(deviceConfigs).values({
+    id: uuidv4(),
+    deviceType: 'macos',
+    deviceId: null,
+    config: macosConfig,
+    version: 1,
+    isActive: true,
+    createdBy: userId,
+    updatedBy: userId,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  });
+
+  console.log('✅ Device configuration seeded successfully');
+}
+
+seedDeviceConfig()
+  .then(() => {
+    console.log('Done!');
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('Error seeding device config:', error);
+    process.exit(1);
+  });

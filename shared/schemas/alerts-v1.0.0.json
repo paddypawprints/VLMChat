@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW. This schema validates incoming MQTT messages and protects against malformed or malicious data. Changes must be coordinated across all validation layers (server MQTT validator, device validator, API specs).",
+  "$id": "alerts-v1.0.0.json",
+  "title": "Alert",
+  "description": "Detection alert or system event from device",
+  "type": "object",
+  "required": ["type", "timestamp"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["detection", "system", "error"],
+      "description": "Alert type"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the alert occurred"
+    },
+    "watchlist_item_id": {
+      "type": "string",
+      "description": "ID of matched watchlist item (for detection alerts)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Alert description"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Detection confidence score"
+    },
+    "image": {
+      "type": "string",
+      "description": "Base64 encoded image or reference"
+    },
+    "image_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to image in storage"
+    },
+    "vlm_required": {
+      "type": "boolean",
+      "description": "Whether VLM verification was required for this detection"
+    },
+    "vlm_confirmed": {
+      "type": "boolean",
+      "description": "Whether VLM confirmed the detection (legacy field)"
+    },
+    "vlm_status": {
+      "type": "string",
+      "enum": ["confirmed", "timeout", "invalid_response"],
+      "description": "VLM verification status: confirmed (yes), timeout (busy), invalid_response (bad answer)"
+    },
+    "vlm_response": {
+      "type": "string",
+      "description": "Raw VLM response text (for debugging invalid responses)"
+    },
+    "vlm_inference_time": {
+      "type": "number",
+      "description": "VLM inference time in seconds"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional alert metadata",
+      "properties": {
+        "bounding_box": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "width": { "type": "number" },
+            "height": { "type": "number" }
+          }
+        },
+        "inference_time_ms": {
+          "type": "number",
+          "description": "Time taken for inference"
+        }
+      }
+    }
+  }
+}

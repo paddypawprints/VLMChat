@@ -1,0 +1,44 @@
+graph LR
+    subgraph "Input"
+        Camera[Camera Source<br/>GStreamer/libcamera/OpenCV]
+    end
+    
+    subgraph "Detection Stage"
+        YOLO[YOLO Detection<br/>80 COCO Categories<br/>PyTorch/TensorRT]
+        Attributes[PA100K Model<br/>26 Attributes<br/>ONNX Runtime]
+        Colors[Color Extraction<br/>HSV Analysis<br/>Region-based]
+    end
+    
+    subgraph "Processing Stage"
+        Cluster[Clusterer<br/>Merge Similar<br/>Detections]
+        Tracker[Tracker<br/>Multi-frame<br/>Object Identity]
+        Filter[Filter<br/>Category + Attribute<br/>+ Color Masks]
+    end
+    
+    subgraph "Output Stage"
+        AlertSink[Alert Sink<br/>Confirmed<br/>Detections]
+        MQTTSink[MQTT Sink<br/>Publish to<br/>Platform]
+        Display[Display Sink<br/>Visualization]
+    end
+    
+    Camera -->|Frame| YOLO
+    YOLO -->|Bounding Boxes| Attributes
+    YOLO -->|Bounding Boxes| Colors
+    Attributes -->|Classification| Cluster
+    Colors -->|Color Data| Cluster
+    Cluster -->|Merged Objects| Tracker
+    Tracker -->|Tracked Objects| Filter
+    Filter -->|Matching Objects| AlertSink
+    Filter -->|Matching Objects| MQTTSink
+    Filter -->|All Objects| Display
+    
+    style Camera fill:#3b82f6,stroke:#1e40af,color:#fff
+    style YOLO fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Attributes fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Colors fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Cluster fill:#10b981,stroke:#059669,color:#fff
+    style Tracker fill:#10b981,stroke:#059669,color:#fff
+    style Filter fill:#10b981,stroke:#059669,color:#fff
+    style AlertSink fill:#f59e0b,stroke:#d97706,color:#fff
+    style MQTTSink fill:#f59e0b,stroke:#d97706,color:#fff
+    style Display fill:#f59e0b,stroke:#d97706,color:#fff

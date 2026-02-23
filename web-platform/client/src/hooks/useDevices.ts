@@ -2,20 +2,20 @@ import { useState, useEffect } from 'react';
 import { devices } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
+interface DeviceSpecs {
+  cpu?: string;
+  memory?: string;
+  temperature?: number;
+  usage?: number;
+}
+
 interface Device {
-  id: string;
+  deviceId: string;
   name: string;
-  type: string;
-  ip: string;
   status: string;
-  specs: {
-    cpu: string;
-    memory: string;
-    temperature: number;
-    usage: number;
-  };
   userId: string | null;
-  lastSeen: Date;
+  lastSeen: string | null;
+  createdAt: string;
 }
 
 export function useDevices(isAuthenticated: boolean) {
@@ -30,12 +30,13 @@ export function useDevices(isAuthenticated: boolean) {
     
     try {
       setLoading(true);
-      const data = await devices.list();
+      // Fetch only active/connected devices
+      const data = await devices.list('connected');
       setDeviceList(data);
       
       // Update connected device state
       const connected = data.find((d: Device) => d.status === 'connected');
-      setConnectedDevice(connected?.id || null);
+      setConnectedDevice(connected?.deviceId || null);
     } catch (error) {
       console.error('Failed to fetch devices:', error);
       toast({
@@ -56,7 +57,7 @@ export function useDevices(isAuthenticated: boolean) {
       
       // Update device status locally
       setDeviceList(prev => prev.map(device => 
-        device.id === deviceId 
+        device.deviceId === deviceId 
           ? { ...device, status: 'connected' }
           : { ...device, status: 'disconnected' }
       ));
@@ -85,7 +86,7 @@ export function useDevices(isAuthenticated: boolean) {
       
       // Update device status locally
       setDeviceList(prev => prev.map(device => 
-        device.id === deviceId 
+        device.deviceId === deviceId 
           ? { ...device, status: 'disconnected' }
           : device
       ));
@@ -133,7 +134,16 @@ export function useDevices(isAuthenticated: boolean) {
   };
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     fetchDevices();
+    
+    // Auto-refresh every 10 seconds to show updated heartbeat status
+    const interval = setInterval(() => {
+      fetchDevices();
+    }, 10000);
+    
+    return () => clearInterval(interval);
   }, [isAuthenticated]);
 
   return {

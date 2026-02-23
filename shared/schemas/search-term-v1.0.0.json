@@ -1,0 +1,126 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search-term-v1.0.0.json",
+  "title": "Search Term",
+  "description": "User-defined search term with natural language query and parsed filter configuration",
+  "type": "object",
+  "required": ["id", "user_id", "search_string", "category_mask", "category_colors", "attribute_mask", "attribute_colors", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier (UUID)",
+      "format": "uuid"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "User who created this search term (UUID)",
+      "format": "uuid"
+    },
+    "search_string": {
+      "type": "string",
+      "description": "Original natural language search query (e.g., 'person wearing red shirt')",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "category_mask": {
+      "type": "array",
+      "description": "Boolean vector for COCO categories (80 items, parsed from search_string)",
+      "items": {
+        "type": "boolean"
+      },
+      "minItems": 80,
+      "maxItems": 80
+    },
+    "category_colors": {
+      "type": "array",
+      "description": "Color matching for each COCO category (80 items, parsed from search_string)",
+      "items": {
+        "oneOf": [
+          { "type": "null" },
+          { 
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          }
+        ]
+      },
+      "minItems": 80,
+      "maxItems": 80
+    },
+    "attribute_mask": {
+      "type": "array",
+      "description": "Boolean vector for PA100K attributes (26 items, parsed from search_string)",
+      "items": {
+        "type": "boolean"
+      },
+      "minItems": 26,
+      "maxItems": 26
+    },
+    "attribute_colors": {
+      "type": "array",
+      "description": "Color matching for each PA100K attribute (26 items, parsed from search_string)",
+      "items": {
+        "oneOf": [
+          { "type": "null" },
+          { 
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          }
+        ]
+      },
+      "minItems": 26,
+      "maxItems": 26
+    },
+    "color_requirements": {
+      "type": "object",
+      "description": "Color requirements per category with region mapping: {category_id: {region_name: [[r,g,b], ...]}}. RGB arrays for HSV tolerance matching. Regions: top (0-25%), middle-top (25-60%), middle-bottom (40-75%), bottom (75-100%)",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "description": "RGB color [r, g, b] each 0-255",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 3,
+            "maxItems": 3
+          }
+        }
+      }
+    },
+    "groq_response": {
+      "description": "Raw Groq API response for debugging and audit trail",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "./groq-cv-response-v1.0.0.json" }
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "description": "ISO 8601 timestamp of creation",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "description": "ISO 8601 timestamp of last update",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "user_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "search_string": "person wearing red shirt",
+      "category_mask": [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+      "category_colors": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
+      "attribute_mask": [true, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false],
+      "attribute_colors": [null, null, null, null, null, null, null, null, null, null, null, null, null, "#ff0000", null, null, null, null, null, null, null, null, null, null, null, null],
+      "created_at": "2026-01-15T19:30:00Z",
+      "updated_at": "2026-01-15T19:30:00Z"
+    }
+  ]
+}

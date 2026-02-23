@@ -62,9 +62,11 @@ export function HeroSection() {
                 Get Started
               </Button>
             </Link>
-            <Button variant="outline" size="lg" className="text-lg px-8" data-testid="button-learn-more">
-              Learn More
-            </Button>
+            <Link href="/technology" data-testid="link-learn-more">
+              <Button variant="outline" size="lg" className="text-lg px-8">
+                Learn More
+              </Button>
+            </Link>
           </div>
         </div>
       </section>

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW. This schema validates WebSocket messages and protects against malformed or malicious data. Changes must be coordinated across all validation layers (server WebSocket validator, browser validator, API specs).",
+  "$id": "websocket-envelope-v1.0.0.json",
+  "title": "WebSocket Message Envelope",
+  "description": "Envelope wrapper for WebSocket messages that contains a type discriminator and the actual message payload. The message field contains one of the protocol-specific message schemas.",
+  "type": "object",
+  "required": ["type", "message"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Message type discriminator that determines which schema validates the message field",
+      "enum": [
+        "metrics_start",
+        "metrics_stop",
+        "logs_start",
+        "logs_stop",
+        "connected",
+        "snapshot",
+        "metrics",
+        "logs",
+        "alert"
+      ]
+    },
+    "message": {
+      "type": "object",
+      "description": "The actual message payload, validated according to the type field"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "metrics_start" },
+        "message": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "metrics_stop" },
+        "message": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "connected" },
+        "message": {
+          "$ref": "connection-ack-v1.0.0.json"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "snapshot" },
+        "message": {
+          "$ref": "snapshot-v1.0.0.json"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "metrics" },
+        "message": {
+          "$ref": "metrics-data-v1.0.0.json"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "logs_start" },
+        "message": {
+          "$ref": "websocket-log-start-v1.0.0.json"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "logs_stop" },
+        "message": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "logs" },
+        "message": {
+          "$ref": "log-entry-v1.0.0.json"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "alert" },
+        "message": {
+          "$ref": "alerts-v1.0.0.json"
+        }
+      }
+    }
+  ]
+}

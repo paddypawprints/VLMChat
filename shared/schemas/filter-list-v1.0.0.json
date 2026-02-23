@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "filter-list-v1.0.0.json",
+  "title": "Filter List",
+  "description": "Complete list of search term filters for device filtering",
+  "type": "object",
+  "required": ["filters"],
+  "properties": {
+    "filters": {
+      "type": "array",
+      "description": "Array of search term filters",
+      "items": {
+        "type": "object",
+        "required": ["id", "category_mask", "attribute_mask"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique filter identifier (search term ID)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable filter name"
+          },
+          "category_mask": {
+            "type": "array",
+            "description": "Boolean mask for 80 COCO categories",
+            "items": {"type": "boolean"},
+            "minItems": 80,
+            "maxItems": 80
+          },
+          "category_colors": {
+            "type": "array",
+            "description": "Hex color strings for category visualization (null if no color filter)",
+            "items": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+              ]
+            },
+            "minItems": 80,
+            "maxItems": 80
+          },
+          "attribute_mask": {
+            "type": "array",
+            "description": "Boolean mask for 26 PA-100K attributes",
+            "items": {"type": "boolean"},
+            "minItems": 26,
+            "maxItems": 26
+          },
+          "attribute_colors": {
+            "type": "array",
+            "description": "Hex color strings for attribute visualization (null if no color filter)",
+            "items": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+              ]
+            },
+            "minItems": 26,
+            "maxItems": 26
+          },
+          "color_requirements": {
+            "type": "object",
+            "description": "Color requirements per category with region mapping: {category_id: {region_name: [[r,g,b], ...]}}. RGB arrays for HSV tolerance matching. Regions: top (0-25%), middle-top (25-60%), middle-bottom (40-75%), bottom (75-100%)",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "description": "RGB color [r, g, b] each 0-255",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

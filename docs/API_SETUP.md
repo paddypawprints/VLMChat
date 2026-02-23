@@ -114,8 +114,9 @@ VLMChat/
 │   └── docker-compose.yml
 │
 ├── vlmchat/                   # 🤖 Vision pipeline
-│   ├── src/                   # Pipeline framework
-│   └── pipelines/             # DSL files
+│   ├── pipeline/              # Pipeline framework
+│   ├── tasks/                 # Vision tasks
+│   └── pyproject.toml
 │
 ├── device-sdk/                # 📦 Device SDK
 │   ├── edge_llm_client/

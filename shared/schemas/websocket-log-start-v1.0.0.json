@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "websocket-log-start-v1.0.0.json",
+  "title": "WebSocket Log Start Command",
+  "description": "Browser request to start log streaming from device",
+  "type": "object",
+  "properties": {
+    "level": {
+      "type": "string",
+      "description": "Minimum log level to stream",
+      "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    }
+  },
+  "additionalProperties": false
+}

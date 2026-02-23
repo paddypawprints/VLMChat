@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "filter-config-v1.0.0.json",
+  "title": "Filter Configuration",
+  "description": "Detection filter configuration using boolean vectors and color matching for categories and attributes",
+  "type": "object",
+  "required": ["category_mask", "category_colors", "attribute_mask", "attribute_colors"],
+  "properties": {
+    "category_mask": {
+      "type": "array",
+      "description": "Boolean vector for COCO categories (80 items, indexed by category.id)",
+      "items": {
+        "type": "boolean"
+      },
+      "minItems": 80,
+      "maxItems": 80
+    },
+    "category_colors": {
+      "type": "array",
+      "description": "Color matching for each COCO category (80 items, null if no color filter, hex string if filtering by color)",
+      "items": {
+        "oneOf": [
+          { "type": "null" },
+          { 
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "description": "Hex color code (e.g., '#ff0000' for red)"
+          }
+        ]
+      },
+      "minItems": 80,
+      "maxItems": 80
+    },
+    "attribute_mask": {
+      "type": "array",
+      "description": "Boolean vector for PA100K attributes (26 items, same order as PA100K.ATTRIBUTES)",
+      "items": {
+        "type": "boolean"
+      },
+      "minItems": 26,
+      "maxItems": 26
+    },
+    "attribute_colors": {
+      "type": "array",
+      "description": "Color matching for each PA100K attribute (26 items, null if no color filter, hex string if filtering by color)",
+      "items": {
+        "oneOf": [
+          { "type": "null" },
+          { 
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "description": "Hex color code (e.g., '#0000ff' for blue)"
+          }
+        ]
+      },
+      "minItems": 26,
+      "maxItems": 26
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "category_mask": [
+        true, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false
+      ],
+      "category_colors": [
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null
+      ],
+      "attribute_mask": [
+        true, false, false, false, false, false,
+        false, false, false, true, false, false,
+        false, true, false, false, false, false,
+        false, false, false, false, false, false,
+        false, false
+      ],
+      "attribute_colors": [
+        null, null, null, null, null, null,
+        null, null, null, "#00ff00", null, null,
+        null, "#ff0000", null, null, null, null,
+        null, null, null, null, null, null,
+        null, null
+      ]
+    }
+  ]
+}

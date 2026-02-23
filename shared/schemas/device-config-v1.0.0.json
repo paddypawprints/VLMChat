@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "device-config-v1.0.0.json",
+  "title": "Device Configuration Record",
+  "description": "Database record for device configuration with version tracking",
+  "type": "object",
+  "required": ["id", "config", "version", "isActive", "createdAt", "updatedAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Configuration record ID"
+    },
+    "deviceType": {
+      "type": ["string", "null"],
+      "description": "Device type this configuration applies to (null for per-device configs)"
+    },
+    "deviceId": {
+      "type": ["string", "null"],
+      "description": "Device identifier (null for per-device-type configs)"
+    },
+    "config": {
+      "type": "object",
+      "description": "Full device configuration (tasks and sinks)",
+      "additionalProperties": true
+    },
+    "version": {
+      "type": "integer",
+      "description": "Configuration version number",
+      "minimum": 1
+    },
+    "isActive": {
+      "type": "boolean",
+      "description": "Whether this is the active configuration"
+    },
+    "updatedBy": {
+      "type": ["string", "null"],
+      "description": "User ID who last updated this configuration"
+    },
+    "createdBy": {
+      "type": ["string", "null"],
+      "description": "User ID who created this configuration"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Configuration creation timestamp"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Configuration last update timestamp"
+    }
+  },
+  "additionalProperties": false
+}

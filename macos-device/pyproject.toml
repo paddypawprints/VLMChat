@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macos-device"
+version = "0.1.0"
+description = "macOS development/testing device for camera pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "camera-framework",
+    "numpy==1.24.2",
+    "scipy==1.10.1",  # pinned: numpy 1.24.2 lacks numpy.exceptions required by scipy>=1.11
+    "opencv-python>=4.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]

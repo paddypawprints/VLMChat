@@ -12,8 +12,13 @@ import { useDevices } from "@/hooks/useDevices";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Devices from "@/pages/Devices";
+import DeviceDetails from "@/pages/DeviceDetails";
 import Chat from "@/pages/Chat";
 import Admin from "@/pages/Admin";
+import DeviceConfig from "@/pages/DeviceConfig";
+import Search from "@/pages/Search";
+import Technology from "@/pages/Technology";
+import ApiDocs from "@/pages/ApiDocs";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -44,6 +49,13 @@ function Router() {
               <Login onLogin={login} onOIDCLogin={oidcLogin} />
             )}
           </Route>
+          <Route path="/devices/:id">
+            {isAuthenticated ? (
+              <DeviceDetails />
+            ) : (
+              <Login onLogin={login} onOIDCLogin={oidcLogin} />
+            )}
+          </Route>
           <Route path="/chat">
             {isAuthenticated ? (
               <Chat deviceConnected={!!connectedDevice} connectedDeviceId={connectedDevice} />
@@ -57,6 +69,23 @@ function Router() {
             ) : (
               <Login onLogin={login} onOIDCLogin={oidcLogin} />
             )}
+          </Route>
+          <Route path="/admin/device/:deviceId/config">
+            {isAuthenticated ? (
+              <DeviceConfig />
+            ) : (
+              <Login onLogin={login} onOIDCLogin={oidcLogin} />
+            )}
+          </Route>
+          <Route path="/search">
+            {isAuthenticated ? (
+              <Search />
+            ) : (
+              <Login onLogin={login} onOIDCLogin={oidcLogin} />
+            )}
+          </Route>
+          <Route path="/technology">
+            <Technology />
           </Route>
           <Route component={NotFound} />
         </Switch>

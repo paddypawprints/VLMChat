@@ -1,3 +1,6 @@
+# Staging area for files pending deletion
+delete/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -9,6 +12,9 @@ __pycache__/
 
 # model weights
 *.pt
+
+# ONNX model files
+*.onnx
 
 # TensorRT engine files
 *.engine
@@ -248,3 +254,14 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 /src/captured_images/*.jpg
+# Device-specific files (persistent IDs and keys)
+.device_id
+.device_key_*.pem
+
+# Legacy code (reference only - not part of active development)
+vlmchat/
+
+# Backup files
+*.bak
+*.bak[0-9]*
+*.bak[0-9][0-9]*

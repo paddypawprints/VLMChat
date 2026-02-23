@@ -82,5 +82,5 @@ Checkpoint created: CLIP_NORMALIZATION_CHECKPOINT.md
 3. Modify fashion_clip_vision_task.py
 4. Modify fashion_clip_text_encoder_task.py
 5. Modify clip_comparator_task.py
-6. Test with test_detection_labeler.dsl
+6. Test with Python pipeline examples
 7. Validate similarity scores are in expected range

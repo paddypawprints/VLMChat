@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW. This schema validates incoming MQTT messages and protects against malformed or malicious data. Changes must be coordinated across all validation layers (server MQTT validator, device validator, API specs).",
+  "$id": "watchlist-v1.0.0.json",
+  "title": "Watchlist",
+  "description": "List of items for cameras to detect",
+  "type": "object",
+  "required": ["items", "updated_at"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique watchlist item ID"
+          },
+          "description": {
+            "type": "string",
+            "description": "Text description of what to watch for"
+          },
+          "embeddings": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "ML model embeddings for detection"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model used to generate embeddings",
+            "default": "clip-vit-base"
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Detection confidence threshold",
+            "default": 0.85
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this item is active",
+            "default": true
+          }
+        }
+      }
+    },
+    "model_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to download ML model file"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp"
+    }
+  }
+}

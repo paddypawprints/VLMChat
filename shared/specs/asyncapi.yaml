@@ -1,3 +1,6 @@
+# ⚠️  WARNING: This file is shared across multiple components.
+# Do NOT modify without confirmation - changes impact validation across the system.
+
 asyncapi: 3.0.0
 info:
   title: Edge AI Platform MQTT API
@@ -78,45 +81,25 @@ channels:
       deviceId:
         $ref: '#/components/parameters/DeviceId'
 
-  metricsConfig:
-    address: devices/{deviceId}/metrics/config
+  metricsCommand:
+    address: devices/{deviceId}/commands/metrics
     messages:
-      metricsConfig:
-        $ref: '#/components/messages/MetricsConfig'
-    description: Device publishes available metrics sessions
+      metricsCommand:
+        $ref: '#/components/messages/MetricsCommand'
+    description: |
+      Server sends metrics collection commands to device.
+      Use enabled=true to start metrics, enabled=false to stop.
+      Optional frequency and instruments parameters configure collection.
     parameters:
       deviceId:
         $ref: '#/components/parameters/DeviceId'
 
   metricsData:
-    address: devices/{deviceId}/metrics/data/{session}
+    address: devices/{deviceId}/metrics
     messages:
       metricsData:
         $ref: '#/components/messages/MetricsData'
-    description: Device publishes metrics data for a specific session
-    parameters:
-      deviceId:
-        $ref: '#/components/parameters/DeviceId'
-      session:
-        description: Metrics session name
-        location: $message.payload#/session
-
-  metricsSubscribe:
-    address: devices/{deviceId}/metrics/subscribe
-    messages:
-      metricsSubscribe:
-        $ref: '#/components/messages/MetricsSubscribe'
-    description: Server requests device to start publishing metrics
-    parameters:
-      deviceId:
-        $ref: '#/components/parameters/DeviceId'
-
-  metricsUnsubscribe:
-    address: devices/{deviceId}/metrics/unsubscribe
-    messages:
-      metricsUnsubscribe:
-        $ref: '#/components/messages/MetricsUnsubscribe'
-    description: Server requests device to stop publishing metrics
+    description: Device publishes metrics data at configured frequency
     parameters:
       deviceId:
         $ref: '#/components/parameters/DeviceId'
@@ -187,33 +170,21 @@ operations:
     summary: Device publishes snapshot
     description: Camera snapshot image
 
-  publishMetricsConfig:
+  sendMetricsCommand:
     action: send
     channel:
-      $ref: '#/channels/metricsConfig'
-    summary: Device publishes metrics configuration
-    description: List of available metrics sessions
+      $ref: '#/channels/metricsCommand'
+    summary: Server controls metrics collection
+    description: |
+      Start metrics with enabled=true, stop with enabled=false.
+      Configure frequency and instruments as needed.
 
   publishMetricsData:
     action: send
     channel:
       $ref: '#/channels/metricsData'
     summary: Device publishes metrics data
-    description: Instrumentation values for a session
-
-  subscribeToMetrics:
-    action: send
-    channel:
-      $ref: '#/channels/metricsSubscribe'
-    summary: Server subscribes to metrics
-    description: Request device to start publishing metrics
-
-  unsubscribeFromMetrics:
-    action: send
-    channel:
-      $ref: '#/channels/metricsUnsubscribe'
-    summary: Server unsubscribes from metrics
-    description: Request device to stop publishing metrics
+    description: Instrumentation values at configured interval
 
 components:
   parameters:
@@ -297,52 +268,77 @@ components:
           height:
             type: integer
 
-    MetricsConfig:
-      name: MetricsConfig
-      title: Metrics Configuration
-      summary: Available metrics sessions
+    MetricsCommand:
+      name: MetricsCommand
+      title: Metrics Command
+      summary: Control and configure metrics collection on device
       contentType: application/json
       payload:
-        $ref: '../schemas/metrics-config/v1.0.0/schema.json'
+        type: object
+        required: [enabled]
+        properties:
+          enabled:
+            type: boolean
+            description: Enable (true) or disable (false) metrics collection
+          frequency:
+            type: number
+            description: Publishing interval in seconds
+            default: 30
+            minimum: 1
+          instruments:
+            description: Array of instrument names to collect, or "*" for all
+            oneOf:
+              - type: string
+                enum: ["*"]
+              - type: array
+                items:
+                  type: string
 
     MetricsData:
       name: MetricsData
       title: Metrics Data
-      summary: Instrumentation values
-      contentType: application/json
-      payload:
-        $ref: '../schemas/metrics-data/v1.0.0/schema.json'
-
-    MetricsSubscribe:
-      name: MetricsSubscribe
-      title: Subscribe to Metrics
-      summary: Request to start publishing metrics
+      summary: Instrumentation values from metrics session
       contentType: application/json
       payload:
         type: object
-        required: [session]
+        required: [timestamp, session]
         properties:
-          session:
+          timestamp:
             type: string
-            description: Metrics session name
-          interval_seconds:
-            type: number
-            description: Publishing interval in seconds
-            default: 5
-            minimum: 1
-
-    MetricsUnsubscribe:
-      name: MetricsUnsubscribe
-      title: Unsubscribe from Metrics
-      summary: Request to stop publishing metrics
-      contentType: application/json
-      payload:
-        type: object
-        required: [session]
-        properties:
+            format: date-time
+            description: Data snapshot timestamp
           session:
-            type: string
-            description: Metrics session name
+            type: object
+            description: Current metrics session state
+            properties:
+              start_time:
+                type: number
+                description: Session start time (Unix timestamp)
+              end_time:
+                type: number
+                nullable: true
+                description: Session end time (Unix timestamp), null if running
+              instruments:
+                type: array
+                description: Array of instrument states
+                items:
+                  type: object
+                  required: [timeseries, instrument]
+                  properties:
+                    timeseries:
+                      type: string
+                      description: Timeseries name
+                    instrument:
+                      type: object
+                      description: Instrument state export
+                      required: [type, name]
+                      properties:
+                        type:
+                          type: string
+                          description: Instrument type class name
+                        name:
+                          type: string
+                          description: Instrument name
 
     WebRTCSignal:
       name: WebRTCSignal

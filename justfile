@@ -43,7 +43,10 @@ generate-ts:
 # Generate Python SDK from JSON schemas
 generate-python:
     @echo "🔨 Generating Python SDK from JSON schemas..."
+    rm -rf device-sdk/edge_llm_client/models
     mkdir -p device-sdk/edge_llm_client/models
+    # Temporarily move README to avoid parsing it
+    @test -f shared/schemas/README.md && mv shared/schemas/README.md shared/SCHEMAS_README.md.tmp || true
     datamodel-codegen \
         --input shared/schemas \
         --input-file-type jsonschema \
@@ -52,15 +55,66 @@ generate-python:
         --field-constraints \
         --use-standard-collections \
         --target-python-version 3.10
+    # Restore README
+    @test -f shared/SCHEMAS_README.md.tmp && mv shared/SCHEMAS_README.md.tmp shared/schemas/README.md || true
     @echo "✅ Python SDK generated"
 
 # Generate AsyncAPI documentation
-generate-docs:
+generate-asyncapi-docs:
     @echo "📚 Generating AsyncAPI documentation..."
-    npx @asyncapi/generator shared/specs/asyncapi.yaml @asyncapi/html-template \
-        --output docs/asyncapi \
+    @mkdir -p web-platform/client/public/docs/asyncapi-mqtt
+    @mkdir -p web-platform/client/public/docs/asyncapi-websocket
+    cd shared/specs && npx -y @asyncapi/cli generate fromTemplate \
+        asyncapi-mqtt.yaml @asyncapi/html-template \
+        --output ../../web-platform/client/public/docs/asyncapi-mqtt \
         --force-write
-    @echo "✅ Documentation generated at docs/asyncapi/index.html"
+    cd shared/specs && npx -y @asyncapi/cli generate fromTemplate \
+        asyncapi-websocket.yaml @asyncapi/html-template \
+        --output ../../web-platform/client/public/docs/asyncapi-websocket \
+        --force-write
+    @echo "✅ AsyncAPI documentation generated"
+
+# Generate OpenAPI documentation
+generate-openapi-docs:
+    @echo "📚 Generating OpenAPI documentation..."
+    @mkdir -p web-platform/client/public/docs/openapi
+    npx @redocly/cli build-docs shared/specs/openapi.yaml \
+        --output web-platform/client/public/docs/openapi/index.html
+    @echo "✅ OpenAPI documentation generated"
+
+# Generate all documentation
+generate-docs: generate-openapi-docs render-diagrams
+    @echo "✅ All documentation generated"
+
+# Render mermaid diagrams to SVG
+render-diagrams:
+    @echo "🎨 Rendering mermaid diagrams..."
+    @mkdir -p web-platform/client/public/diagrams
+    npx -p @mermaid-js/mermaid-cli mmdc \
+        -i web-platform/diagrams/system-architecture.mmd \
+        -o web-platform/client/public/diagrams/system-architecture.svg \
+        -t dark -b transparent
+    npx -p @mermaid-js/mermaid-cli mmdc \
+        -i web-platform/diagrams/pipeline-flow.mmd \
+        -o web-platform/client/public/diagrams/pipeline-flow.svg \
+        -t dark -b transparent
+    @# Render pipeline topology if it exists
+    @if [ -f web-platform/diagrams/pipeline-topology.mmd ]; then \
+        npx -p @mermaid-js/mermaid-cli mmdc \
+            -i web-platform/diagrams/pipeline-topology.mmd \
+            -o web-platform/client/public/diagrams/pipeline-topology.svg \
+            -t dark -b transparent; \
+    fi
+    @echo "✅ Diagrams rendered to web-platform/client/public/diagrams/"
+
+# Generate pipeline topology diagram from running device
+diagram:
+    @echo "📊 Generating pipeline topology diagram..."
+    python -m macos_device --diagram
+    @echo "📋 Copying diagram to web-platform..."
+    @mkdir -p web-platform/diagrams
+    cp diagrams/pipeline-topology.mmd web-platform/diagrams/
+    just render-diagrams
 
 # ============================================================================
 # Development

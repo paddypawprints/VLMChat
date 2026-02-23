@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "admin-service-v1.0.0.json",
+  "title": "Admin Service Status",
+  "description": "Infrastructure service status returned by admin API",
+  "type": "object",
+  "required": ["name", "type", "status"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Service name (e.g., 'MQTT Broker', 'PostgreSQL')"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["mqtt", "database", "cache", "websocket"],
+      "description": "Service type"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["connected", "disconnected", "running", "stopped"],
+      "description": "Service health status"
+    },
+    "endpoint": {
+      "type": ["string", "null"],
+      "description": "Service endpoint URL or connection string"
+    },
+    "details": {
+      "type": ["object", "null"],
+      "description": "Additional service-specific details (topics, connections, etc.)"
+    }
+  }
+}

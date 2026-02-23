@@ -1,0 +1,64 @@
+# ⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW
+# This API specification is enforced by automated validation on both server and browser.
+# Changes to this file directly impact:
+#   - Server WebSocket validator (validation.ts) - rejects invalid messages
+#   - Browser WebSocket validator (websocket-validator.ts) - rejects invalid server messages
+#   - Build process (Vite bundles this spec into browser app)
+#   - Message schemas referenced must exist and be correct
+# All modifications must be coordinated across validation layers and tested thoroughly.
+# Unauthorized changes can create security vulnerabilities or break real-time communication.
+
+asyncapi: 3.0.0
+info:
+  title: Edge AI Platform WebSocket API
+  version: 1.0.0
+  description: |
+    WebSocket messaging protocol for browser clients connecting to the Edge AI Platform.
+    Enables real-time device monitoring, snapshot viewing, and metrics streaming.
+    
+    This API is separate from the MQTT API (asyncapi-mqtt.yaml) which handles device-server communication.
+    The server acts as a bridge, translating WebSocket client messages to MQTT commands and vice versa.
+  contact:
+    name: VLMChat Platform
+  license:
+    name: MIT
+
+servers:
+  development:
+    host: localhost:3000/ws
+    protocol: ws
+    description: Local development WebSocket server
+    tags:
+      - name: env:development
+
+  production:
+    host: platform.example.com/ws
+    protocol: wss
+    description: Production WebSocket server (TLS)
+    tags:
+      - name: env:production
+
+defaultContentType: application/json
+
+channels:
+  websocket:
+    address: /
+    messages:
+      envelope:
+        $ref: '#/components/messages/WebSocketEnvelope'
+    description: |
+      Bidirectional WebSocket channel using envelope pattern.
+      All messages wrapped in {type: string, message: object} envelope.
+      
+      Client→Server types: metrics_start, metrics_stop, logs_start, logs_stop
+      Server→Client types: connected, snapshot, metrics, logs, alert
+
+components:
+  messages:
+    WebSocketEnvelope:
+      name: WebSocketEnvelope
+      title: WebSocket Message Envelope
+      summary: All WebSocket messages use this envelope wrapper
+      contentType: application/json
+      payload:
+        $ref: '../schemas/websocket-envelope-v1.0.0.json'

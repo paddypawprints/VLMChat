@@ -49,6 +49,11 @@
     "level": "INFO",
     "format": "%(asctime)s - %(levelname)s - %(message)s"
   },
+  "metrics": {
+    "enabled": true,
+    "publish_frequency": 30,
+    "max_instruments": 50
+  },
   "paths": {
     "project_root": "None",
     "coco_labels_path": "assets/coco_labels.txt",

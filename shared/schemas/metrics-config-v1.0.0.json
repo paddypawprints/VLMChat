@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW. This schema validates incoming MQTT messages and protects against malformed or malicious data. Changes must be coordinated across all validation layers (server MQTT validator, device validator, API specs).",
+  "$id": "metrics-config-v1.0.0.json",
+  "title": "Metrics Configuration",
+  "description": "Device announces available metrics sessions and instruments",
+  "type": "object",
+  "required": ["sessions"],
+  "properties": {
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "timeseries", "instruments"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Session name"
+          },
+          "timeseries": {
+            "type": "string",
+            "description": "Timeseries name"
+          },
+          "instruments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Instrument definition from metrics system"
+            }
+          }
+        }
+      }
+    }
+  }
+}

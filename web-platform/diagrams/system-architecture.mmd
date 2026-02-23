@@ -1,0 +1,46 @@
+graph TB
+    subgraph "Web Platform"
+        Browser[React Frontend<br/>TypeScript + shadcn/ui]
+        Server[Express.js Server<br/>REST API + WebSocket]
+        DB[(PostgreSQL<br/>Device Registry<br/>Search Terms<br/>Audit Logs)]
+        Redis[(Redis<br/>Session Store<br/>Cache)]
+        Broker[Mosquitto MQTT<br/>Message Broker]
+    end
+    
+    subgraph "Edge Devices"
+        Device1[Raspberry Pi 4/5<br/>Camera Framework]
+        Device2[NVIDIA Jetson Orin<br/>Camera Framework]
+        Device3[macOS Device<br/>Development]
+    end
+    
+    subgraph "AI Services"
+        AIService[Groq AI Service<br/>Llama 3.1<br/>Search Processing]
+    end
+    
+    Browser -->|HTTP/REST| Server
+    Browser -->|WebSocket| Server
+    Server -->|SQL Queries| DB
+    Server -->|Session Cache| Redis
+    Server -->|HTTP| AIService
+    Server <-->|MQTT Pub/Sub| Broker
+    Broker <-->|QoS 0-1| Device1
+    Broker <-->|QoS 0-1| Device2
+    Broker <-->|QoS 0-1| Device3
+    
+    Device1 -->|Alerts + Snapshots| Broker
+    Device2 -->|Alerts + Snapshots| Broker
+    Device3 -->|Alerts + Snapshots| Broker
+    
+    Server -->|Broadcast Events| Browser
+    Server -->|Config Updates| Broker
+    Server -->|Filter Updates| Broker
+    
+    style Browser fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Server fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style DB fill:#10b981,stroke:#059669,color:#fff
+    style Redis fill:#ef4444,stroke:#dc2626,color:#fff
+    style Broker fill:#f59e0b,stroke:#d97706,color:#fff
+    style Device1 fill:#06b6d4,stroke:#0891b2,color:#fff
+    style Device2 fill:#06b6d4,stroke:#0891b2,color:#fff
+    style Device3 fill:#06b6d4,stroke:#0891b2,color:#fff
+    style AIService fill:#ec4899,stroke:#db2777,color:#fff

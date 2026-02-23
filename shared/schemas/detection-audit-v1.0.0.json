@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "detection-audit-v1.0.0.json",
+  "title": "Detection Audit Entry",
+  "description": "Audit log entry for a detection that matched a search term filter",
+  "type": "object",
+  "required": ["id", "search_term_id", "device_id", "timestamp", "bbox", "confidence", "category", "category_id", "image_url"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier (UUID)",
+      "format": "uuid"
+    },
+    "search_term_id": {
+      "type": "string",
+      "description": "Search term that matched this detection (UUID)",
+      "format": "uuid"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Camera device that captured this detection"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 timestamp of detection",
+      "format": "date-time"
+    },
+    "bbox": {
+      "type": "array",
+      "description": "Bounding box coordinates [x1, y1, x2, y2] in pixels",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Detection confidence score (0.0 to 1.0)",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "category": {
+      "type": "string",
+      "description": "Object category label (e.g., 'person', 'car', 'dog')",
+      "minLength": 1
+    },
+    "category_id": {
+      "type": "integer",
+      "description": "COCO category ID"
+    },
+    "attributes": {
+      "type": "object",
+      "description": "PA100K attribute predictions (only for person detections)",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value", "confidence"],
+        "properties": {
+          "value": {
+            "type": "boolean",
+            "description": "Binary attribute prediction"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score for this attribute (0.0 to 1.0)",
+            "minimum": 0.0,
+            "maximum": 1.0
+          }
+        }
+      }
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Relative URL to saved detection image (e.g., '/storage/detections/device-id/timestamp.jpg')",
+      "minLength": 1
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata (matched search string, processing info, etc.)",
+      "properties": {
+        "matched_term": {
+          "type": "string",
+          "description": "The search string that matched this detection"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "a3d8f7c0-1234-5678-90ab-cdef12345678",
+      "search_term_id": "550e8400-e29b-41d4-a716-446655440000",
+      "device_id": "mac-dev-01",
+      "timestamp": "2026-01-15T19:35:42Z",
+      "bbox": [120, 80, 450, 620],
+      "confidence": 0.89,
+      "category": "person",
+      "category_id": 0,
+      "attributes": {
+        "female": { "value": true, "confidence": 0.92 },
+        "upperBodyRed": { "value": true, "confidence": 0.87 },
+        "lowerBodyJeans": { "value": true, "confidence": 0.76 }
+      },
+      "image_url": "/storage/detections/mac-dev-01/2026-01-15T19:35:42Z.jpg",
+      "metadata": {
+        "matched_term": "person wearing red shirt"
+      }
+    }
+  ]
+}

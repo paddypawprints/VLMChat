@@ -1,0 +1,377 @@
+# ⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW
+# This API specification is enforced by automated validation on both server and device.
+# Changes to this file directly impact:
+#   - Server MQTT validator (mqtt-validator.ts) - rejects invalid messages
+#   - Device MQTT validator (mqtt_validator.py) - terminates device on validation failure
+#   - Message schemas referenced must exist and be correct
+# All modifications must be coordinated across validation layers and tested thoroughly.
+# Unauthorized changes can create security vulnerabilities or break device communication.
+
+asyncapi: 3.0.0
+info:
+  title: Edge AI Platform MQTT API
+  version: 1.0.0
+  description: |
+    MQTT messaging protocol for Edge AI Platform devices.
+    Defines topics for device registration, status updates, alerts, metrics, and WebRTC signaling.
+  contact:
+    name: VLMChat Platform
+  license:
+    name: MIT
+
+servers:
+  production:
+    host: localhost:1883
+    protocol: mqtt
+    description: Local MQTT broker
+    tags:
+      - name: env:development
+
+  docker:
+    host: mqtt:1883
+    protocol: mqtt
+    description: Docker MQTT broker
+    tags:
+      - name: env:docker
+
+defaultContentType: application/json
+
+channels:
+  deviceRegister:
+    address: devices/{deviceId}/register
+    messages:
+      deviceRegister:
+        $ref: '#/components/messages/DeviceRegister'
+    description: Device sends registration information on startup
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceStatus:
+    address: devices/{deviceId}/status
+    messages:
+      deviceStatus:
+        $ref: '#/components/messages/DeviceStatus'
+    description: Device publishes status changes
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceHeartbeat:
+    address: devices/{deviceId}/heartbeat
+    messages:
+      deviceHeartbeat:
+        $ref: '#/components/messages/DeviceHeartbeat'
+    description: Periodic heartbeat from device (keepalive)
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceAlerts:
+    address: devices/{deviceId}/alerts
+    messages:
+      alert:
+        $ref: '#/components/messages/Alert'
+    description: Device publishes detection alerts and system events
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceSnapshot:
+    address: devices/{deviceId}/snapshot
+    messages:
+      snapshot:
+        $ref: '#/components/messages/Snapshot'
+    description: Device publishes camera snapshots
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  metricsCommand:
+    address: devices/{deviceId}/commands/metrics
+    messages:
+      metricsCommand:
+        $ref: '#/components/messages/MetricsCommand'
+    description: |
+      Server sends metrics collection commands to device.
+      Use enabled=true to start metrics, enabled=false to stop.
+      Optional frequency and instruments parameters configure collection.
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  filterCommand:
+    address: devices/{deviceId}/commands/filter
+    messages:
+      filterCommand:
+        $ref: '#/components/messages/FilterCommand'
+    description: |
+      Server sends detection filter configuration to device.
+      Updates category_mask (80 bools for COCO categories) and
+      attribute_mask (26 bools for PA100K attributes).
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  configCommand:
+    address: devices/{deviceId}/commands/config
+    messages:
+      configCommand:
+        $ref: '#/components/messages/ConfigCommand'
+    description: |
+      Server sends device configuration updates.
+      Contains full device config (tasks, sinks) with version number.
+      Device should validate, apply, and respond with status.
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  metricsData:
+    address: devices/{deviceId}/metrics
+    messages:
+      metricsData:
+        $ref: '#/components/messages/MetricsData'
+    description: Device publishes metrics data at configured frequency
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  logCommand:
+    address: devices/{deviceId}/commands/logs
+    messages:
+      logCommand:
+        $ref: '#/components/messages/LogCommand'
+    description: |
+      Server sends log streaming commands to device.
+      Use enabled=true with level to start log streaming at specified level.
+      Use enabled=false to stop log streaming.
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  deviceLogs:
+    address: devices/{deviceId}/logs
+    messages:
+      logEntry:
+        $ref: '#/components/messages/LogEntry'
+    description: Device publishes log entries when log streaming is enabled
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  webrtcOffer:
+    address: devices/{deviceId}/webrtc/offer
+    messages:
+      webrtcSignal:
+        $ref: '#/components/messages/WebRTCSignal'
+    description: WebRTC offer from server to device
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  webrtcAnswer:
+    address: devices/{deviceId}/webrtc/answer
+    messages:
+      webrtcSignal:
+        $ref: '#/components/messages/WebRTCSignal'
+    description: WebRTC answer from device to server
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+  webrtcIceCandidate:
+    address: devices/{deviceId}/webrtc/ice
+    messages:
+      webrtcSignal:
+        $ref: '#/components/messages/WebRTCSignal'
+    description: ICE candidate exchange
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/DeviceId'
+
+operations:
+  publishDeviceRegister:
+    action: send
+    channel:
+      $ref: '#/channels/deviceRegister'
+    summary: Device publishes registration
+    description: Sent when device starts up or reconnects
+
+  publishDeviceStatus:
+    action: send
+    channel:
+      $ref: '#/channels/deviceStatus'
+    summary: Device publishes status update
+    description: Sent when device status changes
+
+  publishDeviceHeartbeat:
+    action: send
+    channel:
+      $ref: '#/channels/deviceHeartbeat'
+    summary: Device sends heartbeat
+    description: Periodic keepalive message
+
+  publishAlert:
+    action: send
+    channel:
+      $ref: '#/channels/deviceAlerts'
+    summary: Device publishes alert
+    description: Detection alert or system event
+
+  sendFilterCommand:
+    action: send
+    channel:
+      $ref: '#/channels/filterCommand'
+    summary: Platform sends filter configuration
+    description: Update device detection filter with complete filter list
+
+  sendConfigCommand:
+    action: send
+    channel:
+      $ref: '#/channels/configCommand'
+    summary: Platform sends device configuration
+    description: |
+      Update device configuration with new tasks and sinks settings.
+      Device should validate, apply, and respond with status update.
+
+  publishSnapshot:
+    action: send
+    channel:
+      $ref: '#/channels/deviceSnapshot'
+    summary: Device publishes snapshot
+    description: Camera snapshot image
+
+  sendMetricsCommand:
+    action: send
+    channel:
+      $ref: '#/channels/metricsCommand'
+    summary: Server controls metrics collection
+    description: |
+      Start metrics with enabled=true, stop with enabled=false.
+      Configure frequency and instruments as needed.
+
+  publishMetricsData:
+    action: send
+    channel:
+      $ref: '#/channels/metricsData'
+    summary: Device publishes metrics data
+    description: Instrumentation values at configured interval
+
+  sendLogCommand:
+    action: send
+    channel:
+      $ref: '#/channels/logCommand'
+    summary: Server controls log streaming
+    description: |
+      Start log streaming with enabled=true and level (DEBUG/INFO/WARNING/ERROR/CRITICAL).
+      Stop with enabled=false. Logs are filtered at source by level.
+
+  publishLogEntry:
+    action: send
+    channel:
+      $ref: '#/channels/deviceLogs'
+    summary: Device publishes log entries
+    description: Log entries streamed when enabled
+
+components:
+  parameters:
+    DeviceId:
+      description: Unique device identifier
+      location: $message.payload#/deviceId
+
+  messages:
+    DeviceRegister:
+      name: DeviceRegister
+      title: Device Registration
+      summary: Device registration information
+      contentType: application/json
+      payload:
+        $ref: '../schemas/register-v1.0.0.json'
+
+    DeviceStatus:
+      name: DeviceStatus
+      title: Device Status
+      summary: Device status update
+      contentType: application/json
+      payload:
+        $ref: '../schemas/status-v1.0.0.json'
+
+    DeviceHeartbeat:
+      name: DeviceHeartbeat
+      title: Device Heartbeat
+      summary: Periodic keepalive
+      contentType: application/json
+      payload:
+        $ref: '../schemas/heartbeat-v1.0.0.json'
+
+    Alert:
+      name: Alert
+      title: Detection Alert
+      summary: Detection alert or system event
+      contentType: application/json
+      payload:
+        $ref: '../schemas/alerts-v1.0.0.json'
+
+    Snapshot:
+      name: Snapshot
+      title: Camera Snapshot
+      summary: Camera image snapshot with optional object detections
+      contentType: application/json
+      payload:
+        $ref: '../schemas/snapshot-v1.0.0.json'
+
+    MetricsCommand:
+      name: MetricsCommand
+      title: Metrics Command
+      summary: Control and configure metrics collection on device
+      contentType: application/json
+      payload:
+        $ref: '../schemas/metrics-command-v1.0.0.json'
+
+    FilterCommand:
+      name: FilterCommand
+      title: Filter Configuration Command
+      summary: Update detection filter configuration on device
+      contentType: application/json
+      payload:
+        $ref: '../schemas/filter-config-v1.0.0.json'
+    
+    ConfigCommand:
+      name: ConfigCommand
+      title: Device Configuration Command
+      summary: Update device configuration (tasks and sinks)
+      contentType: application/json
+      payload:
+        $ref: '../schemas/device-config-command-v1.0.0.json'
+    
+    MetricsData:
+      name: MetricsData
+      title: Metrics Data
+      summary: Instrumentation values from metrics session
+      contentType: application/json
+      payload:
+        $ref: '../schemas/metrics-data-v1.0.0.json'
+
+    LogCommand:
+      name: LogCommand
+      title: Log Command
+      summary: Control log streaming from device
+      contentType: application/json
+      payload:
+        $ref: '../schemas/log-command-v1.0.0.json'
+
+    LogEntry:
+      name: LogEntry
+      title: Log Entry
+      summary: Single log entry from device
+      contentType: application/json
+      payload:
+        $ref: '../schemas/log-entry-v1.0.0.json'
+
+    WebRTCSignal:
+      name: WebRTCSignal
+      title: WebRTC Signaling
+      summary: WebRTC signaling message
+      contentType: application/json
+      payload:
+        $ref: '../schemas/webrtc-signaling-v1.0.0.json'

@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "admin-device-v1.0.0.json",
+  "title": "Admin Device Response",
+  "description": "Full device data returned by admin API endpoints",
+  "type": "object",
+  "required": ["id", "name", "type", "ip", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique device identifier (UUID)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable device name"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["macos", "raspberry-pi", "jetson", "coral", "ncs", "generic", "other"],
+      "description": "Device hardware type"
+    },
+    "ip": {
+      "type": ["string", "null"],
+      "description": "Device IP address"
+    },
+    "publicKey": {
+      "type": ["string", "null"],
+      "description": "PEM-encoded Ed25519 public key (optional for development)"
+    },
+    "keyAlgorithm": {
+      "type": ["string", "null"],
+      "description": "Public key algorithm (e.g., Ed25519)"
+    },
+    "jwtVersion": {
+      "type": ["integer", "null"],
+      "description": "JWT version for key rotation/revocation"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["manufactured", "registered", "connected", "disconnected"],
+      "description": "Device commissioning/deployment status"
+    },
+    "specs": {
+      "type": ["object", "null"],
+      "description": "Hardware specifications (CPU, memory, etc.)"
+    },
+    "userId": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Owner user ID (null if unclaimed)"
+    },
+    "claimedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Timestamp when device was claimed by user"
+    },
+    "manufacturedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Device manufacturing timestamp"
+    },
+    "lastSeen": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Last activity timestamp"
+    }
+  }
+}

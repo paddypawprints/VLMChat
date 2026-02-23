@@ -1,3 +1,14 @@
+# ⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW
+# This API specification is enforced by automated validation middleware.
+# Changes to this file directly impact:
+#   - Express OpenAPI validator middleware (index.ts) - validates ALL REST API requests
+#   - Server startup - fails if spec is invalid (fail-fast security)
+#   - API route definitions must match this spec exactly
+#   - Referenced schemas must exist and be correct
+# All modifications must be coordinated with route handlers and tested thoroughly.
+# Invalid spec will cause server to crash on startup (intentional security measure).
+# Unauthorized changes can create security vulnerabilities or break API functionality.
+
 openapi: 3.1.0
 info:
   title: Edge AI Platform API
@@ -16,17 +27,24 @@ servers:
   - url: http://localhost:3000
     description: Docker development server
 
+security:
+  - bearerAuth: []
+
 tags:
   - name: auth
     description: Authentication endpoints
   - name: devices
     description: Device management
+  - name: admin
+    description: Administrative endpoints (device and service management)
   - name: chat
     description: Chat with AI models
   - name: schemas
     description: JSON schema metadata
   - name: metrics
     description: Device metrics and monitoring
+  - name: search
+    description: Search terms and detection audit logs
 
 paths:
   /api/auth/login:
@@ -104,6 +122,14 @@ paths:
       summary: List all devices
       description: Get all edge devices registered to the current user
       operationId: listDevices
+      parameters:
+        - name: status
+          in: query
+          description: Filter devices by status
+          required: false
+          schema:
+            type: string
+            enum: [active, connected, all]
       responses:
         '200':
           description: List of devices
@@ -113,6 +139,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Device'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
     
@@ -137,7 +165,33 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /api/devices/{id}:
+  /api/devices/{deviceId}:
+    get:
+      tags: [devices]
+      summary: Get device by ID
+      description: Retrieve a specific device by its ID
+      operationId: getDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Device details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
     delete:
       tags: [devices]
       summary: Delete device
@@ -158,7 +212,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /api/devices/{id}/messages:
+  /api/devices/{deviceId}/messages:
     get:
       tags: [devices]
       summary: Get device messages
@@ -175,6 +229,238 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeviceMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/config/device:
+    get:
+      tags: [devices]
+      summary: Get device type configuration
+      description: Retrieve the active configuration for a device type (e.g., macos, raspberry-pi, jetson)
+      operationId: getDeviceConfig
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [macos, raspberry-pi, jetson, generic, other]
+          description: Device type/platform
+      responses:
+        '200':
+          description: Device configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [devices]
+      summary: Update device type configuration
+      description: Update configuration for all devices of this type
+      operationId: updateDeviceConfig
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [macos, raspberry-pi, jetson, generic, other]
+          description: Device type/platform
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                config:
+                  type: object
+                  description: Full device configuration (tasks and sinks)
+                changeDescription:
+                  type: string
+                  description: Optional description of what changed
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfig'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/config/device/history:
+    get:
+      tags: [devices]
+      summary: Get device type configuration history
+      description: Retrieve configuration change history for a device type
+      operationId: getDeviceConfigHistory
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [macos, raspberry-pi, jetson, generic, other]
+          description: Device type/platform
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: Configuration history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfigHistory'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/config/device/rollback/{historyId}:
+    post:
+      tags: [devices]
+      summary: Rollback device type configuration
+      description: Restore a previous configuration version for a device type
+      operationId: rollbackDeviceConfig
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [macos, raspberry-pi, jetson, generic, other]
+          description: Device type/platform
+        - name: historyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Configuration rolled back
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/config/framework:
+    get:
+      tags: [devices]
+      summary: Get framework configuration
+      description: Retrieve shared pipeline configuration
+      operationId: getFrameworkConfig
+      responses:
+        '200':
+          description: Framework configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameworkConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [devices]
+      summary: Update framework configuration
+      description: Update shared pipeline configuration
+      operationId: updateFrameworkConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config]
+              properties:
+                name:
+                  type: string
+                  default: default
+                config:
+                  type: object
+                  description: Framework configuration (pipeline, sources, buffers)
+                changeDescription:
+                  type: string
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameworkConfig'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/config/framework/history:
+    get:
+      tags: [devices]
+      summary: Get framework configuration history
+      description: Retrieve framework configuration change history
+      operationId: getFrameworkConfigHistory
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: Configuration history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfigHistory'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/devices/{deviceId}/snapshot:
+    post:
+      tags: [devices]
+      summary: Request snapshot from device
+      description: Request the device to capture and send a snapshot image. The snapshot will be delivered via WebSocket when ready.
+      operationId: requestDeviceSnapshot
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '202':
+          description: Snapshot request accepted and sent to device. Snapshot will be delivered via WebSocket.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accepted
+                properties:
+                  accepted:
+                    type: boolean
+                    example: true
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -311,7 +597,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../schemas/metrics-config/v1.0.0/schema.json'
+                $ref: '../schemas/metrics-config-v1.0.0.json'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -349,7 +635,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '../schemas/metrics-data/v1.0.0/schema.json'
+                      $ref: '../schemas/metrics-data-v1.0.0.json'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -426,6 +712,469 @@ paths:
         '503':
           description: MQTT not available
 
+  /api/search-terms:
+    get:
+      tags: [search]
+      summary: List all search terms
+      description: Retrieve all active search terms for the current user
+      operationId: listSearchTerms
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of search terms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchTerm'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [search]
+      summary: Create search term
+      description: |
+        Create new search term from natural language query.
+        Server parses via Groq API to generate filter vectors,
+        saves to database, and broadcasts MQTT filter update to all devices.
+      operationId: createSearchTerm
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [searchString]
+              properties:
+                searchString:
+                  type: string
+                  description: Natural language search query
+                  minLength: 1
+                  maxLength: 500
+                  example: "person wearing red shirt"
+      responses:
+        '201':
+          description: Search term created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchTerm'
+        '400':
+          description: Invalid search string or parsing failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/search-terms/{id}:
+    get:
+      tags: [search]
+      summary: Get search term details
+      description: Retrieve specific search term with full filter configuration
+      operationId: getSearchTerm
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Search term ID
+      responses:
+        '200':
+          description: Search term details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchTerm'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [search]
+      summary: Delete search term
+      description: |
+        Remove search term from database and broadcast updated MQTT filter
+        to all devices (without this term).
+      operationId: deleteSearchTerm
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Search term ID
+      responses:
+        '200':
+          description: Search term deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/search-terms/detections:
+    get:
+      tags: [search]
+      summary: List all detections
+      description: |
+        Retrieve detection audit log entries across all search terms.
+        Supports pagination and filtering by device, date range, etc.
+      operationId: listDetections
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Maximum number of results to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Offset for pagination
+        - name: deviceId
+          in: query
+          schema:
+            type: string
+          description: Filter by specific device
+        - name: searchTermId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by specific search term
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter detections after this timestamp
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter detections before this timestamp
+      responses:
+        '200':
+          description: List of detections with pagination metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detections:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DetectionAudit'
+                  total:
+                    type: integer
+                    description: Total number of matching detections
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/search-terms/{id}/detections:
+    get:
+      tags: [search]
+      summary: List detections for search term
+      description: Retrieve detection audit log entries for a specific search term
+      operationId: listSearchTermDetections
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Search term ID
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: deviceId
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of detections for this search term
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detections:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DetectionAudit'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================
+  # Admin Endpoints - Device and Service Management
+  # ============================================================
+  /api/admin/devices:
+    get:
+      tags: [admin]
+      summary: List all devices (admin)
+      description: Returns all devices in the system (admin-only, bypasses user filtering)
+      operationId: adminListDevices
+      responses:
+        '200':
+          description: List of all devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '../schemas/admin-device-v1.0.0.json'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
+    post:
+      tags: [admin]
+      summary: Create a new device (admin)
+      description: Manually create a device record (manufacturing/provisioning)
+      operationId: adminCreateDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/admin-device-create-v1.0.0.json'
+      responses:
+        '201':
+          description: Device created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/admin-device-v1.0.0.json'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/devices/{deviceId}:
+    patch:
+      tags: [admin]
+      summary: Update device (admin)
+      description: Update device properties (admin-only)
+      operationId: adminUpdateDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/admin-device-update-v1.0.0.json'
+      responses:
+        '200':
+          description: Device updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/admin-device-v1.0.0.json'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
+    delete:
+      tags: [admin]
+      summary: Delete device (admin)
+      description: Delete a device from the system (admin-only)
+      operationId: adminDeleteDevice
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Device deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/services:
+    get:
+      tags: [admin]
+      summary: List infrastructure services (admin)
+      description: Returns status of all infrastructure services (MQTT, DB, Redis, WebSocket)
+      operationId: adminListServices
+      responses:
+        '200':
+          description: List of infrastructure services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '../schemas/admin-service-v1.0.0.json'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
+    post:
+      tags: [admin]
+      summary: Create/configure service (admin)
+      description: Placeholder for future service configuration
+      operationId: adminCreateService
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                type:
+                  type: string
+      responses:
+        '501':
+          description: Not implemented
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/admin/services/{serviceId}:
+    patch:
+      tags: [admin]
+      summary: Update service (admin)
+      description: Placeholder for future service configuration
+      operationId: adminUpdateService
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '501':
+          description: Not implemented
+    
+    delete:
+      tags: [admin]
+      summary: Delete service (admin)
+      description: Placeholder for future service management
+      operationId: adminDeleteService
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '501':
+          description: Not implemented
+
 components:
   parameters:
     DeviceId:
@@ -450,61 +1199,58 @@ components:
         name:
           type: string
         provider:
-          type: string
-          enum: [google, github, email]
+          oneOf:
+            - type: string
+              enum: [google, github, email]
+            - type: 'null'
         providerId:
-          type: string
+          oneOf:
+            - type: string
+            - type: 'null'
         createdAt:
           type: string
           format: date-time
 
     Device:
       type: object
-      required: [id, name, type, ip, status]
+      description: |
+        Device runtime state and identity.
+        Lightweight response schema for device queries.
+      required: [deviceId, name, status, createdAt]
       properties:
-        id:
+        deviceId:
           type: string
+          description: Unique device identifier
         name:
           type: string
-        type:
-          type: string
-          enum: [raspberry-pi, jetson, intel-nuc, other]
-        ip:
-          type: string
+          description: Human-friendly device name
         status:
           type: string
-          enum: [connected, disconnected, connecting]
-        specs:
-          type: object
-          description: Device specifications
-          properties:
-            cpu:
-              type: string
-            memory:
-              type: string
-            storage:
-              type: string
+          enum: [connected, disconnected, connecting, error]
+          description: Current connection status
         userId:
-          type: string
-          format: uuid
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+          description: Owner user ID (null if unclaimed)
         lastSeen:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          description: Last activity timestamp
+        createdAt:
           type: string
           format: date-time
+          description: Device creation timestamp
 
     DeviceCreate:
-      type: object
-      required: [id, name, type, ip]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        type:
-          type: string
-        ip:
-          type: string
-        specs:
-          type: object
+      description: |
+        Admin device registration payload.
+        Full hardware specification provided during manufacturing/provisioning.
+      allOf:
+        - $ref: '../schemas/register-v1.0.0.json'
 
     DeviceMessage:
       type: object
@@ -541,9 +1287,10 @@ components:
           type: string
           format: uuid
         deviceId:
-          type: string
-          format: uuid
-          nullable: true
+          oneOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         role:
           type: string
           enum: [user, assistant]
@@ -554,11 +1301,37 @@ components:
           items:
             type: string
         debug:
-          type: object
-          nullable: true
+          oneOf:
+            - type: object
+            - type: 'null'
         createdAt:
           type: string
           format: date-time
+
+    SearchTerm:
+      description: User-defined search term with parsed filter configuration
+      allOf:
+        - $ref: '../schemas/search-term-v1.0.0.json'
+
+    DetectionAudit:
+      description: Audit log entry for detection that matched a search term
+      allOf:
+        - $ref: '../schemas/detection-audit-v1.0.0.json'
+    
+    DeviceConfig:
+      description: Database record for device configuration with version tracking
+      allOf:
+        - $ref: '../schemas/device-config-v1.0.0.json'
+    
+    FrameworkConfig:
+      description: Database record for framework configuration with version tracking
+      allOf:
+        - $ref: '../schemas/framework-config-v1.0.0.json'
+    
+    ConfigHistory:
+      description: Audit record for configuration changes
+      allOf:
+        - $ref: '../schemas/config-history-v1.0.0.json'
 
   responses:
     InternalError:
@@ -572,3 +1345,64 @@ components:
                 type: string
               details:
                 type: string
+    
+    BadRequest:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+    
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Unauthorized"
+              message:
+                type: string
+                example: "Authentication required"
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+    
+    Forbidden:
+      description: Access denied
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Access denied"
+              message:
+                type: string
+  
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: JWT session token from cookie-based authentication

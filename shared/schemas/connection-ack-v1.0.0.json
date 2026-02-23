@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW. This schema validates WebSocket messages and protects against malformed or malicious data. Changes must be coordinated across all validation layers (server WebSocket validator, browser validator, API specs).",
+  "$id": "connection-ack-v1.0.0.json",
+  "title": "Connection Acknowledgment",
+  "description": "Server acknowledgment of successful WebSocket connection",
+  "type": "object",
+  "required": ["deviceId", "timestamp"],
+  "properties": {
+    "deviceId": {
+      "type": "string",
+      "description": "Device ID for this connection",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Server timestamp when connection established"
+    }
+  },
+  "additionalProperties": false
+}

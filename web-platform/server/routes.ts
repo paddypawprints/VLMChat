@@ -1,14 +1,77 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { db } from "./db";
-import { users, devices, chatMessages, deviceMessages } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { users, devices, chatMessages, deviceMessages, metricsCommandSchema } from "@shared/schema";
+import { eq, and, desc, or, isNull } from "drizzle-orm";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
+import { getRedisClient } from "./redis";
+import { publishToDevice } from "./mqtt";
+import { createUserSession, getUserSession, deleteUserSession } from "./sessions";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+import { setupWebSocket } from "./websocket";
+import { requireAuth } from "./core/middleware";
+import { searchRoutes } from "./features/search";
+import { configRoutes } from "./features/config";
+import { adminRoutes } from "./features/admin";
+// import { setupVideoProxy } from "./video-proxy";
+// import { setupMediasoupSignaling } from "./mediasoup-signaling";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Log all incoming requests
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      const status = res.statusCode;
+      if (status >= 400) {
+        console.log(`[HTTP ${status}] ${req.method} ${req.path} - ${duration}ms`);
+      }
+    });
+    next();
+  });
+
+  // Register feature routes
+  console.log('[Routes] Registering feature routes...');
+  
+  // Log admin routes in detail
+  if (adminRoutes && adminRoutes.stack) {
+    console.log('[Routes] adminRoutes has', adminRoutes.stack.length, 'routes:');
+    adminRoutes.stack.forEach((layer: any, i: number) => {
+      console.log(`  [${i}] layer.route exists:`, !!layer.route, 'layer.name:', layer.name);
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
+        console.log(`       ${methods} ${layer.route.path}`);
+      } else if (layer.name === 'router') {
+        console.log(`       (nested router, regexp: ${layer.regexp})`);
+      }
+    });
+  }
+  
+  app.use('/api', searchRoutes);
+  app.use('/api', configRoutes);
+  app.use('/api', adminRoutes);
+  
+  // Log what routes are actually mounted on /api
+  console.log('[Routes] Checking all /api mounts...');
+  const apiLayers = (app as any)._router?.stack?.filter((l: any) => 
+    l.regexp?.toString().includes('api') && l.name === 'router'
+  );
+  console.log('[Routes] Found', apiLayers?.length || 0, 'router mounts on /api');
+  apiLayers?.forEach((layer: any, i: number) => {
+    if (layer.handle && layer.handle.stack) {
+      console.log(`[Routes] Mount ${i}: ${layer.handle.stack.length} routes`);
+    }
+  });
+  
+  console.log('[Routes] Feature routes registered');
+  
   // Auth endpoints
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -28,30 +91,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).returning();
       }
       
-      res.json({ user });
+      // Create session and return as bearer token
+      const sessionId = await createUserSession(user.id);
+      res.json({ user, sessionId });
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ error: 'Login failed', details: error.message });
     }
   });
 
-  app.get("/api/auth/me", async (req, res) => {
-    // TODO: Implement session management
-    res.json({ user: null });
+  app.get("/api/auth/me", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user.userId;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json({ user });
+    } catch (error) {
+      console.error('Get user error:', error);
+      res.status(500).json({ error: 'Failed to get user' });
+    }
   });
 
   app.post("/api/auth/logout", async (req, res) => {
-    // TODO: Implement session management
-    res.json({ success: true });
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const sessionId = authHeader.substring(7);
+        await deleteUserSession(sessionId);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Logout error:', error);
+      res.status(500).json({ error: 'Logout failed' });
+    }
   });
 
   // Device endpoints
-  app.get("/api/devices", async (req, res) => {
+  app.get("/api/devices", requireAuth, async (req, res) => {
     try {
-      // TODO: Filter by userId from session
-      const allDevices = await db.select().from(devices);
-      res.json(allDevices);
+      const userId = (req as any).user.userId;
+      const { status } = req.query;
+      
+      // Show devices owned by user OR unassigned devices (userId is null)
+      let conditions = [eq(devices.userId, userId), isNull(devices.userId)];
+      
+      if (status === 'active' || status === 'connected') {
+        conditions.push(eq(devices.status, 'connected'));
+      }
+      
+      const userDevices = await db.select().from(devices).where(or(...conditions));
+      
+      // Enrich with real-time status from Redis
+      const enrichedDevices = await Promise.all(
+        userDevices.map(async (device) => {
+          const { isDeviceConnected } = await import('./sessions.js');
+          const isOnline = await isDeviceConnected(device.id);
+          return {
+            deviceId: device.id,
+            name: device.name,
+            status: isOnline ? 'connected' : 'disconnected',
+            userId: device.userId,
+            lastSeen: device.lastSeen?.toISOString(),
+            createdAt: device.manufacturedAt?.toISOString(),
+          };
+        })
+      );
+      
+      res.json(enrichedDevices);
     } catch (error) {
+      console.error('Get devices error:', error);
       res.status(500).json({ error: 'Failed to fetch devices' });
     }
   });
@@ -75,27 +187,200 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/devices/:id", async (req, res) => {
+  app.delete("/api/devices/:deviceId", requireAuth, async (req, res) => {
     try {
-      await db.delete(devices).where(eq(devices.id, req.params.id));
+      const userId = (req as any).user.userId;
+      const deviceId = req.params.deviceId;
+      
+      // Verify device ownership
+      const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+      if (!device || device.userId !== userId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      await db.delete(devices).where(eq(devices.id, deviceId));
       res.json({ success: true });
     } catch (error) {
+      console.error('Delete device error:', error);
       res.status(500).json({ error: 'Failed to delete device' });
     }
   });
 
+  // Device metrics endpoints
+  app.post("/api/devices/:deviceId/metrics/configure", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user.userId;
+      const deviceId = req.params.deviceId;
+      
+      // Verify device ownership
+      const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+      if (!device || device.userId !== userId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      // Validate payload
+      const command = metricsCommandSchema.parse(req.body);
+      
+      // Publish command to device via MQTT
+      await publishToDevice(deviceId, 'commands/metrics', command);
+      
+      res.json({ success: true, command });
+    } catch (error) {
+      console.error('Metrics configure error:', error);
+      res.status(500).json({ error: 'Failed to configure metrics', details: error.message });
+    }
+  });
+
+  app.get("/api/devices/:deviceId/metrics", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user.userId;
+      const deviceId = req.params.deviceId;
+      const redis = getRedisClient();
+      
+      // Verify device ownership
+      const [device] = await db.select().from(devices).where(eq(devices.id, deviceId));
+      if (!device || device.userId !== userId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      // Disable caching for Safari and other browsers
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      
+      // Get latest metrics
+      const latestKey = `device:${deviceId}:metrics:latest`;
+      const latest = await redis.get(latestKey);
+      
+      let transformedLatest = null;
+      if (latest) {
+        const metricsData = JSON.parse(latest);
+        
+        // Transform schema format to frontend format
+        transformedLatest = {
+          timestamp: metricsData.timestamp
+        };
+        
+        // Convert instruments array to flat object
+        if (metricsData.instruments) {
+          for (const instrument of metricsData.instruments) {
+            // Map instrument names to frontend keys
+            if (instrument.name === 'pipeline.fps') {
+              transformedLatest.fps = instrument.value;
+            } else if (instrument.name === 'pipeline.duration') {
+              transformedLatest.avgDuration = instrument.value;
+            } else if (instrument.name === 'cache.objects') {
+              transformedLatest.totalObjects = instrument.value;
+            } else if (instrument.name === 'cache.references') {
+              transformedLatest.totalReferences = instrument.value;
+            }
+          }
+        }
+      }
+      
+      // Get history (optional, via query param)
+      let history = null;
+      if (req.query.includeHistory === 'true') {
+        const historyKey = `device:${deviceId}:metrics:history`;
+        const historyData = await redis.lrange(historyKey, 0, 99);
+        history = historyData.map(item => JSON.parse(item));
+      }
+      
+      res.json({
+        latest: transformedLatest,
+        history
+      });
+    } catch (error) {
+      console.error('Metrics fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch metrics', details: error.message });
+    }
+  });
+
   // Device messages endpoints
-  app.get("/api/devices/:id/messages", async (req, res) => {
+  app.get("/api/devices/:deviceId/messages", async (req, res) => {
     try {
       const messages = await db.select()
         .from(deviceMessages)
-        .where(eq(deviceMessages.deviceId, req.params.id))
+        .where(eq(deviceMessages.deviceId, req.params.deviceId))
         .orderBy(desc(deviceMessages.createdAt))
         .limit(100);
       
       res.json(messages);
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch device messages' });
+    }
+  });
+
+  // Device snapshot endpoints
+  app.post("/api/devices/:deviceId/snapshot", async (req, res) => {
+    try {
+      const deviceId = req.params.deviceId;
+      
+      console.log(`[API] ⚡ Snapshot requested for device: ${deviceId}`);
+      console.log('[API] ⚡ Sending MQTT command...');
+      
+      // Send MQTT command to device to capture snapshot
+      await publishToDevice(deviceId, 'commands/snapshot', { 
+        type: 'snapshot'
+      });
+      
+      console.log(`[API] ✓ Snapshot command sent successfully to ${deviceId}`);
+      res.status(202).json({ accepted: true });
+    } catch (error) {
+      console.error('[API] ❌ Snapshot request error:', error);
+      res.status(500).json({ error: 'Failed to request snapshot', details: error.message });
+    }
+  });
+
+  app.get("/api/devices/:deviceId/snapshot", async (req, res) => {
+    try {
+      const deviceId = req.params.deviceId;
+      const redis = getRedisClient();
+      
+      // Get latest snapshot from Redis
+      const snapshotKey = `device:${deviceId}:snapshot:latest`;
+      const snapshot = await redis.get(snapshotKey);
+      
+      if (snapshot) {
+        const data = JSON.parse(snapshot);
+        res.json(data);
+      } else {
+        res.json({ image: null, timestamp: null });
+      }
+    } catch (error) {
+      console.error('Snapshot fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch snapshot', details: error.message });
+    }
+  });
+
+  app.get("/api/devices/:deviceId", async (req, res) => {
+    try {
+      const [device] = await db.select()
+        .from(devices)
+        .where(eq(devices.id, req.params.deviceId))
+        .limit(1);
+      
+      if (!device) {
+        res.status(404).json({ error: 'Device not found' });
+        return;
+      }
+      
+      // Get real-time status from Redis
+      const { isDeviceConnected } = await import('./sessions.js');
+      const isOnline = await isDeviceConnected(device.id);
+      
+      // Map database fields to API response format
+      res.json({
+        deviceId: device.id,
+        name: device.name,
+        status: isOnline ? 'connected' : 'disconnected',
+        userId: device.userId,
+        lastSeen: device.lastSeen?.toISOString(),
+        createdAt: device.manufacturedAt?.toISOString(),
+      });
+    } catch (error) {
+      console.error('Device fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch device' });
     }
   });
 
@@ -165,44 +450,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ error: 'Failed to send message' });
-    }
-  });
-
-  // Schema endpoints
-  app.get("/api/schemas", async (req, res) => {
-    try {
-      const schemasDir = join(process.cwd(), 'shared', 'schemas');
-      const topics = await readdir(schemasDir);
-      
-      const schemas = [];
-      for (const topic of topics) {
-        const topicPath = join(schemasDir, topic);
-        const versions = await readdir(topicPath);
-        
-        for (const version of versions) {
-          schemas.push({
-            topic,
-            version,
-            url: `/api/schemas/${topic}/${version}/schema.json`
-          });
-        }
-      }
-      
-      res.json({ schemas });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to list schemas' });
-    }
-  });
-
-  app.get("/api/schemas/:topic/:version/schema.json", async (req, res) => {
-    try {
-      const { topic, version } = req.params;
-      const schemaPath = join(process.cwd(), 'shared', 'schemas', topic, version, 'schema.json');
-      const schemaContent = await readFile(schemaPath, 'utf-8');
-      
-      res.json(JSON.parse(schemaContent));
-    } catch (error) {
-      res.status(404).json({ error: 'Schema not found' });
     }
   });
 
@@ -307,7 +554,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to unsubscribe from metrics' });
     }
   });
-  
+
   const httpServer = createServer(app);
+  
+  // Setup WebSocket servers
+  setupWebSocket(httpServer);
+  // setupVideoProxy(httpServer);
+  // setupMediasoupSignaling(httpServer);
+  
   return httpServer;
 }

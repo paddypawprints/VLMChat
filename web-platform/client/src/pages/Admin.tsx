@@ -1,5 +1,6 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { admin } from "@/lib/api";
+import { DeviceConfigDialog } from "@/components/DeviceConfigDialog";
+import { JsonViewer } from "@textea/json-viewer";
 import { 
   Plus, 
   Trash2, 
@@ -19,7 +22,9 @@ import {
   Monitor,
   Cpu,
   HardDrive,
-  Loader2
+  Loader2,
+  Settings,
+  FileJson
 } from "lucide-react";
 
 interface Device {
@@ -34,9 +39,9 @@ interface Device {
     temperature: number;
     usage: number;
   };
-  user_id?: string;
-  last_seen?: string;
-  created_at?: string;
+  userId?: string | null;
+  lastSeen?: string | null;
+  manufacturedAt?: string;
 }
 
 interface AdminService {
@@ -46,7 +51,308 @@ interface AdminService {
   endpoint?: string;
   status: string;
   config?: Record<string, any>;
-  created_at?: string;
+  createdAt?: string;
+}
+
+// Helper to check if value is an object
+function isObject(value: any): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+// Helper to update value at path in object
+function updateAtPath(obj: any, path: (string | number)[], value: any): any {
+  if (path.length === 0) return value;
+  
+  const [head, ...tail] = path;
+  const newObj = Array.isArray(obj) ? [...obj] : { ...obj };
+  newObj[head] = updateAtPath(newObj[head], tail, value);
+  return newObj;
+}
+
+function FrameworkConfigSection() {
+  const { toast } = useToast();
+  const [configData, setConfigData] = useState<any>(null);
+
+  // Fetch framework config
+  const { isLoading } = useQuery({
+    queryKey: ['/config/framework'],
+    queryFn: async () => {
+      const res = await fetch('/api/config/framework', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('ir-session')}`,
+        },
+      });
+      if (!res.ok) throw new Error('Failed to fetch config');
+      const data = await res.json();
+      setConfigData(data.config);
+      return data;
+    },
+  });
+
+  // Update framework config mutation
+  const updateMutation = useMutation({
+    mutationFn: async (newConfig: any) => {
+      const res = await fetch('/api/config/framework', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('ir-session')}`,
+        },
+        body: JSON.stringify({ config: newConfig }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to update config');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/config/framework'] });
+      toast({
+        title: "Success",
+        description: "Framework configuration updated",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSave = () => {
+    if (configData) {
+      updateMutation.mutate(configData);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Settings className="h-5 w-5" />
+          Framework Configuration
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Platform-wide settings shared across all devices. Edit values directly below.
+          </p>
+          <Button 
+            onClick={handleSave}
+            disabled={updateMutation.isPending || isLoading || !configData}
+            size="sm"
+          >
+            {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Changes
+          </Button>
+        </div>
+
+        <div className="border rounded-lg p-4 bg-white">
+          {isLoading ? (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : configData ? (
+            <JsonViewer
+              value={configData}
+              theme="light"
+              defaultInspectDepth={10}
+              editable={true}
+              onEdit={(params) => {
+                const { path, newValue, oldValue } = params;
+                
+                // Only allow editing leaf nodes (primitives)
+                const isLeaf = !isObject(newValue) && !isObject(oldValue);
+                
+                if (!isLeaf) {
+                  toast({
+                    title: "Cannot edit structure",
+                    description: "Only values can be edited, not object keys or structure",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                
+                // Update config at path
+                const updated = updateAtPath(configData, path, newValue);
+                setConfigData(updated);
+              }}
+              onAdd={() => {
+                toast({
+                  title: "Cannot add fields",
+                  description: "Structure is read-only",
+                  variant: "destructive",
+                });
+              }}
+              onDelete={() => {
+                toast({
+                  title: "Cannot delete fields",
+                  description: "Structure is read-only",
+                  variant: "destructive",
+                });
+              }}
+              displayDataTypes={false}
+              displaySize={false}
+              enableClipboard={false}
+            />
+          ) : (
+            <div className="text-sm text-muted-foreground p-4">
+              No configuration found
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+function DeviceConfigSection({ deviceType }: { deviceType: string }) {
+  const { toast } = useToast();
+  const [configData, setConfigData] = useState<any>(null);
+
+  // Fetch device config
+  const { isLoading } = useQuery({
+    queryKey: [`/config/device?type=${deviceType}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/config/device?type=${deviceType}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('ir-session')}`,
+        },
+      });
+      if (res.status === 404) {
+        // No config yet - this is okay
+        setConfigData(null);
+        return null;
+      }
+      if (!res.ok) throw new Error('Failed to fetch config');
+      const data = await res.json();
+      setConfigData(data.config);
+      return data;
+    },
+  });
+
+  // Update device config mutation
+  const updateMutation = useMutation({
+    mutationFn: async (newConfig: any) => {
+      const res = await fetch(`/api/config/device?type=${deviceType}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('ir-session')}`,
+        },
+        body: JSON.stringify({ config: newConfig }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to update config');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/config/device?type=${deviceType}`] });
+      toast({
+        title: "Success",
+        description: `Configuration for ${deviceType} devices updated`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSave = () => {
+    if (configData) {
+      updateMutation.mutate(configData);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Settings className="h-5 w-5" />
+          {deviceType.charAt(0).toUpperCase() + deviceType.slice(1)} Device Configuration
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Configuration for all {deviceType} devices. Edit values directly below.
+          </p>
+          <Button 
+            onClick={handleSave}
+            disabled={updateMutation.isPending || isLoading || !configData}
+            size="sm"
+          >
+            {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Config
+          </Button>
+        </div>
+
+        <div className="border rounded-lg p-4 bg-white">
+        {isLoading ? (
+          <div className="flex items-center justify-center p-4">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : configData ? (
+          <JsonViewer
+            value={configData}
+            theme="light"
+            defaultInspectDepth={10}
+            editable={true}
+            onEdit={(params) => {
+              const { path, newValue, oldValue } = params;
+              
+              // Only allow editing leaf nodes (primitives)
+              const isLeaf = !isObject(newValue) && !isObject(oldValue);
+              
+              if (!isLeaf) {
+                toast({
+                  title: "Cannot edit structure",
+                  description: "Only values can be edited, not object keys or structure",
+                  variant: "destructive",
+                });
+                return;
+              }
+              
+              // Update config at path
+              const updated = updateAtPath(configData, path, newValue);
+              setConfigData(updated);
+            }}
+            onAdd={() => {
+              toast({
+                title: "Cannot add fields",
+                description: "Structure is read-only",
+                variant: "destructive",
+              });
+            }}
+            onDelete={() => {
+              toast({
+                title: "Cannot delete fields",
+                description: "Structure is read-only",
+                variant: "destructive",
+              });
+            }}
+            displayDataTypes={false}
+            displaySize={false}
+            enableClipboard={false}
+          />
+        ) : (
+          <div className="text-xs text-muted-foreground p-2 text-center">
+            No configuration found. Click "Save Config" with default values to create.
+          </div>
+        )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function Admin() {
@@ -74,6 +380,7 @@ export default function Admin() {
     error: devicesError 
   } = useQuery<Device[]>({
     queryKey: ['/admin/devices'],
+    queryFn: admin.devices.list,
     retry: 2
   });
 
@@ -83,6 +390,7 @@ export default function Admin() {
     error: servicesError 
   } = useQuery<AdminService[]>({
     queryKey: ['/admin/services'],
+    queryFn: admin.services.list,
     retry: 2
   });
 
@@ -206,6 +514,32 @@ export default function Admin() {
       default: return '⚪';
     }
   };
+
+  // Check if device is truly online based on heartbeat (within last 60 seconds)
+  const isDeviceOnline = (lastSeen: string | null | undefined) => {
+    if (!lastSeen) return false;
+    const now = new Date().getTime();
+    const lastSeenTime = new Date(lastSeen).getTime();
+    const diffSeconds = (now - lastSeenTime) / 1000;
+    return diffSeconds < 60; // Consider online if heartbeat within last 60 seconds
+  };
+
+  const getLastSeenText = (lastSeen: string | null | undefined) => {
+    if (!lastSeen) return 'Never';
+    const now = new Date().getTime();
+    const lastSeenTime = new Date(lastSeen).getTime();
+    const diffSeconds = (now - lastSeenTime) / 1000;
+    
+    if (diffSeconds < 60) return 'Just now';
+    if (diffSeconds < 120) return '1 minute ago';
+    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)} minutes ago`;
+    if (diffSeconds < 7200) return '1 hour ago';
+    if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)} hours ago`;
+    return new Date(lastSeen).toLocaleString();
+  };
+
+  // Supported device types (currently only macos is configured)
+  const deviceTypes = ['macos'];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -349,16 +683,21 @@ export default function Admin() {
                           <p className="text-sm text-muted-foreground">
                             ID: {device.id} • IP: {device.ip} • Type: {device.type}
                           </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Last heartbeat: {getLastSeenText(device.lastSeen)}
+                          </p>
                           {device.specs && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {device.specs.cpu} • {device.specs.memory} • {device.specs.temperature}°C • {device.specs.usage}% usage
+                            <p className="text-xs text-muted-foreground">
+                              {device.specs.cpu} • {device.specs.memory}
+                              {device.specs.temperature !== undefined && ` • ${device.specs.temperature}°C`}
+                              {device.specs.usage !== undefined && ` • ${device.specs.usage}% usage`}
                             </p>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant={device.status === 'connected' ? 'default' : 'secondary'}>
-                          {device.status}
+                        <Badge variant={isDeviceOnline(device.lastSeen) ? 'default' : 'secondary'}>
+                          {isDeviceOnline(device.lastSeen) ? 'Online' : 'Offline'}
                         </Badge>
                         <Button variant="ghost" size="icon" data-testid={`button-edit-device-${device.id}`}>
                           <Edit className="h-4 w-4" />
@@ -564,6 +903,23 @@ export default function Admin() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Device Type Configurations */}
+      <Separator />
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold">Device Type Configurations</h2>
+        <p className="text-sm text-muted-foreground">
+          Configure settings for each device platform type. All devices of the same type share these settings.
+        </p>
+        {deviceTypes.map(deviceType => (
+          <DeviceConfigSection key={deviceType} deviceType={deviceType} />
+        ))}
+      </div>
+
+      <Separator />
+
+      {/* Framework Configuration */}
+      <FrameworkConfigSection />
     </div>
   );
 }

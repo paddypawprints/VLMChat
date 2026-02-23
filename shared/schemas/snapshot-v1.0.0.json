@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "⚠️  SECURITY CRITICAL - DO NOT MODIFY WITHOUT REVIEW. This schema validates incoming MQTT messages and protects against malformed or malicious data. Changes must be coordinated across all validation layers (server MQTT validator, device validator, API specs).",
+  "$id": "snapshot-v1.0.0.json",
+  "title": "Device Snapshot",
+  "description": "Schema for device snapshot messages containing captured images with optional object detections",
+  "type": "object",
+  "required": [
+    "device_id",
+    "timestamp",
+    "image"
+  ],
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "description": "Unique identifier for the device",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when the snapshot was captured"
+    },
+    "image": {
+      "type": "string",
+      "description": "Base64-encoded image data",
+      "minLength": 1
+    },
+    "format": {
+      "type": "string",
+      "enum": ["jpeg", "png"],
+      "description": "Image format",
+      "default": "jpeg"
+    },
+    "width": {
+      "type": "integer",
+      "description": "Image width in pixels",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "description": "Image height in pixels",
+      "minimum": 1
+    },
+    "detections": {
+      "type": "array",
+      "description": "Array of object detections from YOLO or other vision models (tree structure with children)",
+      "items": {
+        "$ref": "detection-v1.0.0.json"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -11,8 +11,8 @@ VLMChat/
 │   └── specs/           # OpenAPI & AsyncAPI specifications
 │
 ├── vlmchat/             # 🤖 Device vision pipeline framework
-│   ├── src/             # Python pipeline implementation
-│   ├── pipelines/       # DSL pipeline definitions
+│   ├── pipeline/        # Python pipeline implementation
+│   ├── tasks/           # Built-in vision tasks
 │   └── pyproject.toml   # vlmchat package
 │
 ├── web-platform/        # 🌐 Web management interface
@@ -27,12 +27,12 @@ VLMChat/
 ## Components
 
 ### Vision Pipeline (vlmchat/)
-DSL-based vision processing framework for edge devices:
+Python-based vision processing framework for edge devices:
 - SmolVLM integration with optional ONNX acceleration
 - YOLO object detection & clustering
 - CLIP text/vision encoding
 - Picamera2 camera support for Raspberry Pi
-- Configurable pipelines via DSL files
+- Fluent API for building pipelines with method chaining
 
 ### Web Platform (web-platform/)
 Web-based device management and monitoring:

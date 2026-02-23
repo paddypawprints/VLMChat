@@ -1,0 +1,25 @@
+# Camera Framework Configuration
+# Shared/generic pipeline settings
+
+pipeline:
+  max_workers: 4
+  memory_leak_threshold: 30.0
+  stats_interval: 30
+
+sources:
+  camera:
+    width: 1920
+    height: 1080
+    fps: 30.0
+    device: 0
+  
+  image_library:
+    image_dir: "/Users/patrick/Dev/MOT15"
+    width: 1920
+    height: 1080
+    framerate: 1.0
+
+buffers:
+  default_size: 5
+  alert_size: 10
+  policy: "drop_oldest"

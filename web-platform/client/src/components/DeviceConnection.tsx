@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useDevices } from "@/hooks/useDevices";
 import { useAuth } from "@/hooks/useAuth";
+import { Link } from "wouter";
 import { 
   Cpu, 
   Wifi, 
@@ -12,7 +13,8 @@ import {
   Zap,
   HardDrive,
   Thermometer,
-  Activity
+  Activity,
+  Eye
 } from "lucide-react";
 
 interface DeviceConnectionProps {
@@ -34,8 +36,31 @@ export function DeviceConnection({ onConnect, onDisconnect }: DeviceConnectionPr
       case 'jetson': return '🟢';
       case 'coral': return '🟡';
       case 'ncs': return '🔵';
+      case 'mac': return '💻';
       default: return '⚪';
     }
+  };
+
+  // Check if device is truly online based on heartbeat (within last 60 seconds)
+  const isDeviceAlive = (lastSeen: Date | null | undefined) => {
+    if (!lastSeen) return false;
+    const now = new Date().getTime();
+    const lastSeenTime = new Date(lastSeen).getTime();
+    const diffSeconds = (now - lastSeenTime) / 1000;
+    return diffSeconds < 60; // Consider alive if heartbeat within last 60 seconds
+  };
+
+  const getHeartbeatStatus = (lastSeen: Date | null | undefined) => {
+    if (!lastSeen) return 'Never';
+    const now = new Date().getTime();
+    const lastSeenTime = new Date(lastSeen).getTime();
+    const diffSeconds = (now - lastSeenTime) / 1000;
+    
+    if (diffSeconds < 60) return 'Just now';
+    if (diffSeconds < 120) return '1 minute ago';
+    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)} minutes ago`;
+    if (diffSeconds < 7200) return '1 hour ago';
+    return new Date(lastSeen).toLocaleString();
   };
 
   return (
@@ -85,11 +110,11 @@ export function DeviceConnection({ onConnect, onDisconnect }: DeviceConnectionPr
         )}
         
         {devices.map((device) => (
-          <Card key={device.id} className="hover-elevate">
+          <Card key={device.deviceId} className="hover-elevate">
             <CardContent className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="text-2xl">{getDeviceIcon(device.type)}</div>
+                  <div className="text-2xl">💻</div>
                   <div>
                     <h4 className="font-semibold flex items-center gap-2">
                       {device.name}
@@ -99,52 +124,31 @@ export function DeviceConnection({ onConnect, onDisconnect }: DeviceConnectionPr
                       >
                         {device.status === 'connected' ? (
                           <>
-                            <Wifi className="h-3 w-3" />
-                            Connected
+                            <Activity className="h-3 w-3 animate-pulse" />
+                            Online
                           </>
                         ) : (
                           <>
                             <WifiOff className="h-3 w-3" />
-                            Disconnected
+                            Offline
                           </>
                         )}
                       </Badge>
                     </h4>
-                    <p className="text-sm text-muted-foreground">{device.ip}</p>
-                    {device.lastSeen && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Last seen: {new Date(device.lastSeen).toLocaleString()}
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Last seen: {device.lastSeen ? new Date(device.lastSeen).toLocaleString() : 'Never'}
+                    </p>
                   </div>
                 </div>
+                
+                {/* View Details Button */}
+                <Link href={`/devices/${device.deviceId}`}>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <Eye className="h-4 w-4" />
+                    View Details
+                  </Button>
+                </Link>
               </div>
-              
-              {/* Device Specs */}
-              {device.specs && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">CPU:</span>
-                    <span>{device.specs.cpu}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <HardDrive className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">RAM:</span>
-                    <span>{device.specs.memory}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Thermometer className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Temp:</span>
-                    <span>{device.specs.temperature}°C</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Usage:</span>
-                    <span>{device.specs.usage}%</span>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         ))}

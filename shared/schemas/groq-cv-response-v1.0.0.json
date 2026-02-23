@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "groq-cv-response-v1.0.0.json",
+  "title": "Groq CV Intent Parser Response",
+  "description": "Response format from Groq LLM for computer vision intent parsing",
+  "type": "object",
+  "required": ["search_terms", "strategy"],
+  "properties": {
+    "search_terms": {
+      "type": "array",
+      "description": "List of search terms parsed from the user query",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["search_term", "objects"],
+        "properties": {
+          "search_term": {
+            "type": "string",
+            "description": "Original search string or normalized version"
+          },
+          "objects": {
+            "type": "array",
+            "description": "List of objects that must be present in the scene",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["category"],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "description": "COCO category (e.g., 'person', 'car', 'dog')",
+                  "enum": [
+                    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+                    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+                    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+                    "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+                    "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+                    "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+                    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+                    "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
+                    "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+                    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+                  ]
+                },
+                "attributes": {
+                  "type": "array",
+                  "description": "PA-100K attributes (only valid for category='person')",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "Female", "AgeOver60", "Age18-60", "AgeLess18", "Front", "Side", "Back",
+                      "Hat", "Glasses", "HandBag", "ShoulderBag", "Backpack", "HoldObjectsInFront",
+                      "ShortSleeve", "LongSleeve", "UpperStride", "UpperLogo", "UpperPlaid", "UpperSplice",
+                      "LowerStripe", "LowerPattern", "LongCoat", "Trousers", "Shorts", "Skirt&Dress", "boots"
+                    ]
+                  }
+                },
+                "negative_attributes": {
+                  "type": "array",
+                  "description": "Attributes that must NOT be present (e.g., 'not wearing backpack')",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "Female", "AgeOver60", "Age18-60", "AgeLess18", "Front", "Side", "Back",
+                      "Hat", "Glasses", "HandBag", "ShoulderBag", "Backpack", "HoldObjectsInFront",
+                      "ShortSleeve", "LongSleeve", "UpperStride", "UpperLogo", "UpperPlaid", "UpperSplice",
+                      "LowerStripe", "LowerPattern", "LongCoat", "Trousers", "Shorts", "Skirt&Dress", "boots"
+                    ]
+                  }
+                },
+                "colors": {
+                  "type": "object",
+                  "description": "Color mappings for attributes or category",
+                  "additionalProperties": {
+                    "type": "array",
+                    "description": "RGB color value [R, G, B]",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "required": ["completeness_score", "requires_vlm"],
+      "properties": {
+        "completeness_score": {
+          "type": "integer",
+          "description": "How much of user intent is captured by bitmask (1-10)",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "requires_vlm": {
+          "type": "boolean",
+          "description": "Whether this query needs VLM for full understanding"
+        },
+        "vlm_reasoning": {
+          "type": "string",
+          "description": "Explanation of why VLM is needed (if requires_vlm=true)"
+        }
+      }
+    }
+  }
+}

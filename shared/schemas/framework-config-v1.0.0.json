@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "framework-config-v1.0.0.json",
+  "title": "Framework Configuration Record",
+  "description": "Database record for framework configuration with version tracking",
+  "type": "object",
+  "required": ["id", "name", "config", "version", "isActive", "createdAt", "updatedAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Configuration record ID"
+    },
+    "name": {
+      "type": "string",
+      "description": "Configuration name (e.g., 'default', 'production')"
+    },
+    "config": {
+      "type": "object",
+      "description": "Framework configuration (pipeline, sources, buffers)",
+      "additionalProperties": true
+    },
+    "version": {
+      "type": "integer",
+      "description": "Configuration version number",
+      "minimum": 1
+    },
+    "isActive": {
+      "type": "boolean",
+      "description": "Whether this is the active configuration"
+    },
+    "updatedBy": {
+      "type": ["string", "null"],
+      "description": "User ID who last updated this configuration"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Configuration creation timestamp"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Configuration last update timestamp"
+    }
+  },
+  "additionalProperties": false
+}

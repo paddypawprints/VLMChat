@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "detection-v1.0.0.json",
+  "title": "Object Detection",
+  "description": "Schema for object detection with recursive children support (for clustered detections)",
+  "type": "object",
+  "required": ["bbox", "confidence", "category"],
+  "properties": {
+    "bbox": {
+      "type": "array",
+      "description": "Bounding box coordinates [x1, y1, x2, y2] in pixels",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Detection confidence score (0.0 to 1.0)",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "category": {
+      "type": "string",
+      "description": "Object category label (e.g., 'person', 'car', 'dog')",
+      "minLength": 1
+    },
+    "category_id": {
+      "type": "integer",
+      "description": "COCO category ID (-1 for unknown)"
+    },
+    "children": {
+      "type": "array",
+      "description": "Child detections (for clustered objects)",
+      "items": {
+        "$ref": "#"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Extensible metadata for task enrichment (e.g., person attributes, activity detection)",
+      "properties": {
+        "category": {
+          "type": "string",
+          "description": "Object category label (duplicated here for convenience)"
+        },
+        "category_id": {
+          "type": "integer",
+          "description": "Object category ID (duplicated here for convenience)"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Attribute predictions with confidence per item",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["value", "confidence"],
+            "properties": {
+              "value": {
+                "type": "boolean",
+                "description": "Binary attribute prediction"
+              },
+              "confidence": {
+                "type": "number",
+                "description": "Confidence score for this attribute (0.0 to 1.0)",
+                "minimum": 0.0,
+                "maximum": 1.0
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

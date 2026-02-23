@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "admin-device-update-v1.0.0.json",
+  "title": "Admin Device Update Request",
+  "description": "Request body for updating device via admin API (partial update)",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable device name"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["raspberry-pi", "jetson", "coral", "ncs", "other"],
+      "description": "Device hardware type"
+    },
+    "ip": {
+      "type": "string",
+      "format": "ipv4",
+      "description": "Device IP address"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["manufactured", "registered", "connected", "disconnected"],
+      "description": "Device status"
+    }
+  }
+}

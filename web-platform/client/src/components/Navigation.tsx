@@ -2,8 +2,16 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "./ThemeToggle";
-import { Cpu, Wifi, WifiOff } from "lucide-react";
+import { Cpu, Wifi, WifiOff, Menu, X } from "lucide-react";
 import logoImage from "@/assets/logo.png";
+import { useState } from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 interface NavigationProps {
   isAuthenticated?: boolean;
@@ -13,6 +21,7 @@ interface NavigationProps {
 
 export function Navigation({ isAuthenticated = false, deviceConnected = false, onLogout }: NavigationProps) {
   const [location] = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -26,6 +35,17 @@ export function Navigation({ isAuthenticated = false, deviceConnected = false, o
               </div>
             </Link>
             
+            <div className="hidden md:flex items-center gap-4">
+              <Link href="/technology" data-testid="link-technology">
+                <Button 
+                  variant={location === "/technology" ? "default" : "ghost"}
+                  size="sm"
+                >
+                  Technology
+                </Button>
+              </Link>
+            </div>
+            
             {isAuthenticated && (
               <div className="hidden md:flex items-center gap-4">
                 <Link href="/devices" data-testid="link-devices">
@@ -36,6 +56,14 @@ export function Navigation({ isAuthenticated = false, deviceConnected = false, o
                   >
                     <Cpu className="h-4 w-4" />
                     Devices
+                  </Button>
+                </Link>
+                <Link href="/search" data-testid="link-search">
+                  <Button 
+                    variant={location === "/search" ? "default" : "ghost"}
+                    size="sm"
+                  >
+                    🔍 Search
                   </Button>
                 </Link>
                 <Link href="/chat" data-testid="link-chat">
@@ -83,22 +111,108 @@ export function Navigation({ isAuthenticated = false, deviceConnected = false, o
             
             <ThemeToggle />
             
-            {isAuthenticated ? (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={onLogout}
-                data-testid="button-logout"
-              >
-                Logout
-              </Button>
-            ) : location !== "/login" && (
-              <Link href="/login" data-testid="link-login">
-                <Button size="sm">
-                  Login
+            {/* Mobile Menu */}
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild className="md:hidden">
+                <Button variant="ghost" size="sm">
+                  <Menu className="h-5 w-5" />
                 </Button>
-              </Link>
-            )}
+              </SheetTrigger>
+              <SheetContent side="right">
+                <SheetHeader>
+                  <SheetTitle>Menu</SheetTitle>
+                </SheetHeader>
+                <div className="flex flex-col gap-4 mt-6">
+                  <Link href="/technology" onClick={() => setMobileMenuOpen(false)}>
+                    <Button 
+                      variant={location === "/technology" ? "default" : "ghost"}
+                      className="w-full justify-start"
+                    >
+                      Technology
+                    </Button>
+                  </Link>
+                  
+                  {isAuthenticated && (
+                    <>
+                      <Link href="/devices" onClick={() => setMobileMenuOpen(false)}>
+                        <Button 
+                          variant={location === "/devices" ? "default" : "ghost"}
+                          className="w-full justify-start gap-2"
+                        >
+                          <Cpu className="h-4 w-4" />
+                          Devices
+                        </Button>
+                      </Link>
+                      <Link href="/search" onClick={() => setMobileMenuOpen(false)}>
+                        <Button 
+                          variant={location === "/search" ? "default" : "ghost"}
+                          className="w-full justify-start"
+                        >
+                          🔍 Search
+                        </Button>
+                      </Link>
+                      <Link href="/chat" onClick={() => setMobileMenuOpen(false)}>
+                        <Button 
+                          variant={location === "/chat" ? "default" : "ghost"}
+                          className="w-full justify-start"
+                        >
+                          Chat
+                        </Button>
+                      </Link>
+                      <Link href="/admin" onClick={() => setMobileMenuOpen(false)}>
+                        <Button 
+                          variant={location === "/admin" ? "default" : "ghost"}
+                          className="w-full justify-start"
+                        >
+                          Admin
+                        </Button>
+                      </Link>
+                    </>
+                  )}
+                  
+                  <div className="border-t pt-4 mt-2">
+                    {isAuthenticated ? (
+                      <Button 
+                        variant="outline" 
+                        className="w-full"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          onLogout?.();
+                        }}
+                      >
+                        Logout
+                      </Button>
+                    ) : location !== "/login" && (
+                      <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+                        <Button className="w-full">
+                          Login
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+            
+            {/* Desktop Buttons */}
+            <div className="hidden md:flex items-center gap-2">
+              {isAuthenticated ? (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={onLogout}
+                  data-testid="button-logout"
+                >
+                  Logout
+                </Button>
+              ) : location !== "/login" && (
+                <Link href="/login" data-testid="link-login">
+                  <Button size="sm">
+                    Login
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>

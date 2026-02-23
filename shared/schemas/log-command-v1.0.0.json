@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "log-command-v1.0.0.json",
+  "title": "Log Command",
+  "description": "Command to control device log streaming",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Enable or disable log streaming"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+      "description": "Minimum log level to stream (only logs at this level or higher will be sent)"
+    }
+  },
+  "required": ["enabled"],
+  "additionalProperties": false
+}

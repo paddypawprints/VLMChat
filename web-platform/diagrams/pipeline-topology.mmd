@@ -1,0 +1,62 @@
+flowchart TD
+
+    subgraph Sources
+    task0([ImageLibraryCamera])
+    task9([heartbeat])
+    task10([metrics_publish])
+    task11([log_publish])
+    end
+
+    subgraph Processing
+    task1[YoloTask]
+    task2[yolo_category_router]
+    task3[PersonAttributeTask]
+    task4[attribute_color_filter]
+    task5[clusterer]
+    task6[detection_tracker]
+    task7[vlm_queue]
+    task8[smolvlm_worker]
+    end
+
+    subgraph Sinks
+    task12[/mqtt_publish_mac-dev-01/]
+    task13[/SnapshotTask-mac-dev-01/]
+    task14[/alert_publisher/]
+    end
+
+    buf0{{camera_to_yolo<br/>size=5<br/>drop_oldest}}
+    buf1{{yolo_detections<br/>size=5<br/>drop_oldest}}
+    buf2{{filtered_detections<br/>size=5<br/>drop_oldest}}
+    buf3{{enriched_detections<br/>size=5<br/>drop_oldest}}
+    buf4{{color_filtered_detections<br/>size=5<br/>drop_oldest}}
+    buf5{{clustered_detections<br/>size=5<br/>drop_oldest}}
+    buf6{{tracker_output<br/>size=30<br/>drop_oldest}}
+    buf7{{alert_buffer<br/>size=30<br/>drop_oldest}}
+    buf8{{vlm_buffer<br/>size=1<br/>blocking}}
+    buf9{{outbound<br/>size=100<br/>drop_oldest}}
+
+    task0 -->|frame| buf0
+    buf0 -->|frame| task1
+    task1 -->|detections| buf1
+    buf1 -->|detections| task2
+    task2 -->|filtered| buf2
+    buf2 -->|detections| task3
+    task3 -->|enriched| buf3
+    buf3 -->|detections| task4
+    task4 -->|filtered| buf4
+    buf4 -->|detections| task5
+    task5 -->|clustered| buf5
+    buf5 -->|clustered| task6
+    task6 -->|confirmations| buf6
+    buf6 -->|tracker| task7
+    task7 -->|alerts| buf7
+    buf7 -->|alerts| task14
+    task7 -->|vlm| buf8
+    buf8 -->|detections| task8
+    task8 -->|alerts| buf7
+    buf7 -->|alerts| task14
+    task10 -->|messages| buf9
+    buf9 -->|messages| task12
+    task11 -->|messages| buf9
+    buf9 -->|messages| task12
+    buf4 -.->|snapshot| task13

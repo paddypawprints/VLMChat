@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "config-history-v1.0.0.json",
+  "title": "Configuration History Record",
+  "description": "Audit record for configuration changes",
+  "type": "object",
+  "required": ["id", "configType", "configId", "config", "version", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "History record ID"
+    },
+    "configType": {
+      "type": "string",
+      "enum": ["device", "framework"],
+      "description": "Type of configuration"
+    },
+    "configId": {
+      "type": "string",
+      "description": "Configuration record ID"
+    },
+    "deviceId": {
+      "type": ["string", "null"],
+      "description": "Device ID (for device configs only)"
+    },
+    "config": {
+      "type": "object",
+      "description": "Configuration snapshot",
+      "additionalProperties": true
+    },
+    "version": {
+      "type": "integer",
+      "description": "Configuration version number",
+      "minimum": 1
+    },
+    "changeDescription": {
+      "type": ["string", "null"],
+      "description": "Description of what changed"
+    },
+    "changedBy": {
+      "type": ["string", "null"],
+      "description": "User ID who made the change"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Change timestamp"
+    }
+  },
+  "additionalProperties": false
+}

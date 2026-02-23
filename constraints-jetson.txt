@@ -4,6 +4,7 @@
 # matched wheels which must be installed manually.
 
 numpy==1.24.2
+scipy==1.10.1
 Pillow==9.4.0
 requests==2.28.1
 pydantic==2.11.9

@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "device-config-command-v1.0.0.json",
+  "title": "Device Configuration Command",
+  "description": "Command to update device configuration (tasks and sinks)",
+  "type": "object",
+  "required": ["version", "config"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Configuration version number for tracking and optimistic locking",
+      "minimum": 1,
+      "examples": [1, 2, 3]
+    },
+    "config": {
+      "type": "object",
+      "description": "Full device configuration",
+      "required": ["tasks", "sinks"],
+      "properties": {
+        "tasks": {
+          "type": "object",
+          "description": "Task configurations (YOLO, attributes, color_filter, clusterer, tracker, etc.)",
+          "additionalProperties": true,
+          "examples": [{
+            "yolo": {
+              "model_path": "yolov8n.pt",
+              "confidence": 0.25,
+              "iou": 0.45,
+              "device": "cpu"
+            },
+            "attributes": {
+              "model_path": "/path/to/pa_model.onnx",
+              "confidence_threshold": 0.5,
+              "batch_size": 1
+            }
+          }]
+        },
+        "sinks": {
+          "type": "object",
+          "description": "Sink configurations (MQTT, storage, etc.)",
+          "additionalProperties": true,
+          "examples": [{
+            "mqtt": {
+              "broker_host": "localhost",
+              "broker_port": 1883,
+              "device_id": "device-123",
+              "device_type": "macos"
+            }
+          }]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "admin-device-create-v1.0.0.json",
+  "title": "Admin Device Create Request",
+  "description": "Request body for creating a new device via admin API",
+  "type": "object",
+  "required": ["id", "name", "type", "ip"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique device identifier (UUID)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable device name"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["macos", "raspberry-pi", "jetson", "coral", "ncs", "generic", "other"],
+      "description": "Device hardware type"
+    },
+    "ip": {
+      "type": "string",
+      "format": "ipv4",
+      "description": "Device IP address"
+    }
+  }
+}
